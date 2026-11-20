@@ -379,7 +379,11 @@ async function exportOrders() {
     if (hit && hit.label) expPage = task.page(hit.label);
     log("tabs_after_export", tabs.map((t) => String(t.url || "").slice(0, 80)));
   }
-  if (!expPage) throw new Error("export_page_not_found");
+  if (!expPage) {
+    const txt = await page.evaluate(() => (document.body.innerText || "").replace(/\s+/g, " ")).catch(() => "");
+    if (/5分钟|五分钟|间隔|频繁/.test(txt)) throw new Error("rate_limited:两次导出间隔需≥5分钟，请稍后重试");
+    throw new Error("export_page_not_found");
+  }
   await expPage.waitForLoadState("load", { timeout: 20000 }).catch(() => {});
   await expPage.waitForTimeout(1500);
 
@@ -413,14 +417,30 @@ async function exportOrders() {
   await sleep(1200);
   await fs.mkdir(PERIOD_DIR, { recursive: true }).catch(() => {});
   const dest = path.join(PERIOD_DIR, JOB.csvName);
+  let usedDest = dest, usedName = JOB.csvName, targetLocked = false;
   let copied = false, lastErr = null, lastSize = -1;
   for (let i = 0; i < 40 && !copied; i++) {
     try {
       const st = await fs.stat(src);
       if (st.size > 0 && st.size === lastSize) {
-        await fs.copyFile(src, dest);
-        copied = true;
-        break;
+        try {
+          await fs.copyFile(src, dest);
+          copied = true;
+          break;
+        } catch (e) {
+          if (e && (e.code === "EBUSY" || e.code === "EPERM" || e.code === "EACCES")) {
+            const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(4, 14);
+            const altName = JOB.csvName.replace(/\.csv$/i, ".new-" + stamp + ".csv");
+            const altDest = path.join(PERIOD_DIR, altName);
+            await fs.copyFile(src, altDest);
+            usedDest = altDest;
+            usedName = altName;
+            targetLocked = true;
+            copied = true;
+            break;
+          }
+          lastErr = e;
+        }
       }
       lastSize = st.size;
     } catch (e) { lastErr = e; }
@@ -428,7 +448,7 @@ async function exportOrders() {
   }
   if (!copied) throw new Error("download_copy_failed:" + String((lastErr && lastErr.message) || lastErr).slice(0, 120));
   await fs.unlink(src).catch(() => {});
-  return { srcName: added, dest };
+  return { srcName: added, dest: usedDest, csvName: usedName, targetLocked };
 }
 
 // ---------- CSV 元数据 ----------
@@ -445,7 +465,7 @@ function parseCsvLine(line) {
   return out;
 }
 
-async function writeOrderInfo(dest, count) {
+async function writeOrderInfo(dest, count, fileName) {
   const raw = await fs.readFile(dest);
   const bom = raw[0] === 0xef && raw[1] === 0xbb && raw[2] === 0xbf;
   const text = raw.toString("utf8").replace(/^\uFEFF/, "");
@@ -481,7 +501,7 @@ async function writeOrderInfo(dest, count) {
     "| CSV 数据行数 | " + rows.length + " |",
     "| 用户实付合计（元） | " + (sum(payI) == null ? "未读到" : sum(payI)) + " |",
     "| 商家实收合计（元） | " + (sum(recvI) == null ? "未读到" : sum(recvI)) + " |",
-    "| 文件 | `" + JOB.csvName + "` |",
+    "| 文件 | `" + (fileName || JOB.csvName) + "` |",
     "| 文件大小 | " + raw.length + " 字节 |",
     "| SHA-256 | " + sha + " |",
     "| 编码 | " + (bom ? "UTF-8 BOM" : "UTF-8") + " |",
@@ -496,6 +516,11 @@ async function writeOrderInfo(dest, count) {
   ].join("\n");
   await fs.writeFile(PERIOD_DIR + "/订单信息.md", md, "utf8");
   return { uniq, rows: rows.length, header, pay: sum(payI), recv: sum(recvI), statuses, sha, bytes: raw.length, bom };
+}
+
+async function discoverMode() {
+  const found = await discoverShops();
+  return { status: "discovered", shops: found };
 }
 
 async function doctor() {
@@ -516,13 +541,14 @@ async function main() {
   if (count === null) throw new Error("order_count_not_found");
   const exp = await exportOrders();
   log("export_file", exp.dest);
-  const meta = await writeOrderInfo(exp.dest, count);
+  const meta = await writeOrderInfo(exp.dest, count, exp.csvName);
   return {
     status: "done",
     shop: shopName,
     orders: count,
     csvRows: meta.rows,
-    csvName: JOB.csvName,
+    csvName: exp.csvName,
+    targetLocked: exp.targetLocked,
     path: exp.dest,
     paySum: meta.pay,
     recvSum: meta.recv,
@@ -533,7 +559,7 @@ async function main() {
 
 let result;
 try {
-  result = JOB.mode === "doctor" ? await doctor() : await main();
+  result = JOB.mode === "doctor" ? await doctor() : JOB.mode === "discover" ? await discoverMode() : await main();
   await writeResult({ ok: true, ...result });
 } catch (e) {
   const msg = String((e && e.message) || e);

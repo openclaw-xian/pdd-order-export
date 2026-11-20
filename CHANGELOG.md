@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 — 2026-11-20
+
+- 无 `shops`/`_stores.json` 时自动扫描 ego profiles 生成清单（`STORES_DISCOVERED`）。
+- 目标 CSV 被 Excel/WPS 占用时自动改写 `.new-<时间>.csv` 并继续，`订单信息.md` 记录实际文件名。
+- 导出间隔不足 5 分钟时识别为 `rate_limited`，给出明确提示。
+- doctor / 全链路回归保持 1488 单。
+
 ## 0.1.2 — 2026-11-20
 
 - 新增 `doctor` 只读自检：校验找店/全部订单页签/状态筛选/日期回读/查询计数，不导出、不写账单。

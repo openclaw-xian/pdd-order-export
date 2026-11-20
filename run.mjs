@@ -73,13 +73,33 @@ if (CFG.shops && CFG.shops.length) {
     stores = (reg.stores || []).filter((s) => s.enabled !== false && s.shop);
     if (only) stores = stores.filter((s) => only.includes(s.shop));
     storesFromConfig = true;
+    if (!stores.length && !only) storesFromConfig = false;
   } catch (e) {
     storesFromConfig = true;
     addIssue("stores_config_invalid", "店铺清单不是合法 JSON：" + STORES_CFG, { path: STORES_CFG });
   }
 }
+
+const egoOk = EGO === "ego-browser" || existsSync(EGO);
+if (!stores.length && !storesFromConfig && egoOk && !issues.some((i) => i.code === "ego_not_found")) {
+  console.log("STORES_DISCOVERING=1");
+  let disc = await runDiscovery();
+  if (!(disc && disc.ok && disc.shops && disc.shops.length)) {
+    console.log("STORES_DISCOVERY_RETRY");
+    await sleep(1500);
+    disc = await runDiscovery();
+  }
+  if (disc && disc.ok && disc.shops && disc.shops.length) {
+    await saveStores(disc.shops);
+    stores = disc.shops.map((s) => ({ shop: s.shop, profile: s.profile }));
+    console.log("STORES_DISCOVERED=" + stores.length + " -> " + STORES_CFG);
+  }
+}
+
+if (CFG.only && CFG.only.length) stores = stores.filter((s) => CFG.only.includes(s.shop));
+
 if (!stores.length && !issues.some((i) => ["stores_config_invalid"].includes(i.code))) {
-  addIssue("stores_config_missing", "没有可跑店铺：请在 config 里给 shops 或提供 " + STORES_CFG, { path: STORES_CFG });
+  addIssue("stores_config_missing", "没有可跑店铺：config 里给 shops、或提供 " + STORES_CFG + "；也可以先登录至少一家店让自动发现", { path: STORES_CFG });
 }
 if (issues.length) {
   console.log("PREFLIGHT=needs_user_input");
@@ -122,6 +142,35 @@ async function runOne(store, i, mode = "run") {
   }
   if (!result) result = { ok: false, status: "failed", error: "no_result_file" };
   return { shop: store.shop, result, wallSec: Number(((Date.now() - started) / 1000).toFixed(1)) };
+}
+
+// 扫描 ego profiles 自动发现店铺（mode=discover）
+async function runDiscovery() {
+  const resultPath = path.join(os.tmpdir(), "pdd-order-discover-" + RUN_ID + ".json");
+  const dir = RUNTIME + "/" + RUN_ID + "-discover";
+  await fs.mkdir(dir, { recursive: true }).catch(() => {});
+  const job = { mode: "discover", root: ROOT, storesConfig: STORES_CFG, resultPath };
+  const wrapper = dir + "/discover.mjs";
+  await fs.writeFile(wrapper, "globalThis.__JOB = " + JSON.stringify(job) + ";\nawait import('file:///" + WORKER + "');\n", "utf8");
+  const child = spawn(EGO, ["nodejs", "-e", "await import('file:///" + wrapper + "')"], { stdio: "ignore", windowsHide: true });
+  const t = setTimeout(() => { try { child.kill(); } catch (e) {} }, 120000);
+  await new Promise((res) => child.on("exit", res));
+  clearTimeout(t);
+  try { return JSON.parse(await fs.readFile(resultPath, "utf8")); } catch (e) { return { ok: false, shops: [] }; }
+}
+
+async function saveStores(shops) {
+  let reg = { version: 1, root: ROOT, stores: [] };
+  try { reg = JSON.parse(await fs.readFile(STORES_CFG, "utf8")); } catch (e) {}
+  if (!reg.stores) reg.stores = [];
+  if (!reg.root) reg.root = ROOT;
+  for (const s of shops) {
+    let e = reg.stores.find((x) => x.shop === s.shop);
+    if (!e) { e = { shop: s.shop, profile: s.profile, enabled: true }; reg.stores.push(e); }
+    else { e.profile = s.profile; if (e.enabled === undefined) e.enabled = true; }
+  }
+  await fs.mkdir(path.dirname(STORES_CFG), { recursive: true }).catch(() => {});
+  await fs.writeFile(STORES_CFG, JSON.stringify(reg, null, 2), "utf8");
 }
 
 if (DOCTOR) {
