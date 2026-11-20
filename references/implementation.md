@@ -51,6 +51,12 @@ worker-order.mjs   ego 进程内：找店 → 日期 → 查询 → 批量导出
 - 日期格：排除 `RPR_outOfMonth` / `RPR_disabled`
 - 结束日左闭右开 → 必须 +1 天，否则漏最后一天（实测 10 月漏 55 单）
 
+## doctor（只读自检）
+
+- 配置 `doctor:true` 或 `mode:"doctor"`；runner 逐店串行跑 worker `mode:"doctor"`，输出 `DOCTOR_RESULT`。
+- worker：找店 → 校验全部订单/状态筛选 → 选日期并回读 → 查询计数；**不导出、不下载、不写账单目录**。
+- 退出码：全部通过 0，否则 1。
+
 ## 维护指南
 
 | 变的东西 | 改哪里 |

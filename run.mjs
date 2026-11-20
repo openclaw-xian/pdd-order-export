@@ -10,6 +10,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const CFG_PATH = process.argv[2];
 if (!CFG_PATH) { console.error("用法: node run.mjs <config.json>"); process.exit(2); }
 const CFG = JSON.parse(await fs.readFile(CFG_PATH, "utf8"));
+const DOCTOR = !!CFG.doctor || CFG.mode === "doctor";
 
 const SELF_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SELF_WORKER = path.join(SELF_DIR, "worker-order.mjs").replace(/\\/g, "/");
@@ -43,7 +44,7 @@ else {
   const spanDays = Math.round((new Date(to + "T00:00:00Z") - new Date(from + "T00:00:00Z")) / 86400000);
   const earliest = (() => {
     const d = new Date(todayIso + "T00:00:00Z");
-    d.setUTCDate(d.getUTCDate() - 100);
+    d.setUTCDate(d.getUTCDate() - 92);
     return d.toISOString().slice(0, 10);
   })();
   if (spanDays > 92) addIssue("range_too_long", "当前 skill 只支持近 3 个月（≤92 天），当前 " + spanDays + " 天", { from, to, spanDays });
@@ -96,14 +97,15 @@ await fs.mkdir(RESULT_DIR, { recursive: true });
 await fs.mkdir(LOG_DIR, { recursive: true });
 await fs.mkdir(RUNTIME + "/" + RUN_ID, { recursive: true });
 
-async function runOne(store, i) {
+async function runOne(store, i, mode = "run") {
   const job = {
     shop: store.shop,
     profile: store.profile || null,
     from, to, root: ROOT,
     periodDir, label,
     csvName: store.shop + "-订单-" + label + ".csv",
-    resultPath: path.join(RESULT_DIR, store.shop + ".json"),
+    mode,
+    resultPath: mode === "doctor" ? path.join(os.tmpdir(), "pdd-order-doctor-" + RUN_ID + "-" + i + ".json") : path.join(RESULT_DIR, store.shop + ".json"),
     logPath: path.join(LOG_DIR, store.shop + ".log"),
     storesConfig: STORES_CFG,
   };
@@ -120,6 +122,18 @@ async function runOne(store, i) {
   }
   if (!result) result = { ok: false, status: "failed", error: "no_result_file" };
   return { shop: store.shop, result, wallSec: Number(((Date.now() - started) / 1000).toFixed(1)) };
+}
+
+if (DOCTOR) {
+  const rs = [];
+  for (let i = 0; i < stores.length; i++) {
+    const r = await runOne(stores[i], i, "doctor");
+    rs.push(r);
+    console.log("DOCTOR " + r.shop + " " + (r.result.status || "?") + " orders=" + (r.result.orders === undefined ? "-" : r.result.orders) + " wall=" + r.wallSec + "s");
+  }
+  const ok = rs.every((r) => r.result && r.result.ok);
+  console.log("\nDOCTOR_RESULT=" + JSON.stringify({ ok, from, to, stores: rs }, null, 1));
+  process.exit(ok ? 0 : 1);
 }
 
 const completed = [];

@@ -498,6 +498,14 @@ async function writeOrderInfo(dest, count) {
   return { uniq, rows: rows.length, header, pay: sum(payI), recv: sum(recvI), statuses, sha, bytes: raw.length, bom };
 }
 
+async function doctor() {
+  const shopName = await openShopSpace();
+  await ensureOrderListView();
+  const dateInfo = await setDateRange();
+  const orders = await queryCount();
+  return { status: "doctor_ok", shop: shopName, orders, dateText: dateInfo.actual };
+}
+
 async function main() {
   const shopName = await openShopSpace();
   if (!page) page = await task.newPage();
@@ -525,7 +533,7 @@ async function main() {
 
 let result;
 try {
-  result = await main();
+  result = JOB.mode === "doctor" ? await doctor() : await main();
   await writeResult({ ok: true, ...result });
 } catch (e) {
   const msg = String((e && e.message) || e);

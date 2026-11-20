@@ -43,6 +43,14 @@ node run.mjs order-config.json
 
 也支持只给 `from/to`，从 `<root>/_stores.json` 读店铺。默认串行（下载目录共享）。
 
+自检（只读，不导出）：
+
+```json
+{ "doctor": true, "from": "2026-10-01", "to": "2026-10-31" }
+```
+
+示例：`examples/order-config.example.json`、`examples/doctor-config.example.json`。
+
 ## 输出
 
 ```

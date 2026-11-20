@@ -54,6 +54,7 @@
 | 3 个月前日期（2026-07） | `PREFLIGHT=needs_user_input`，`range_older_than_3_months`，exit 3 |
 | 全部订单 tab/状态筛选 | worker 启动时回读：`all=2`、`timeout=true`；不满足直接失败 |
 | 下载文件被占用 | worker 先 `finish` 关页释放句柄，再等大小稳定复制；失败重试 |
+| doctor 自检（2026-10） | `doctor_ok`，1488 单，12.1s，不导出/不写账单 |
 
 ## 5. 已知限制
 
