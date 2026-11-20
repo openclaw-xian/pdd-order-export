@@ -379,9 +379,26 @@ async function exportOrders() {
     if (hit && hit.label) expPage = task.page(hit.label);
     log("tabs_after_export", tabs.map((t) => String(t.url || "").slice(0, 80)));
   }
+  if (!expPage && genState.marked) {
+    // page.click 偶发不触发：再用鼠标点一次按钮
+    await page.mouse.click(genState.x, genState.y);
+    await page.waitForTimeout(3000);
+    const tabs2 = await task.tabs();
+    const hit2 = tabs2.find((t) => String(t.url || "").includes("/orders/exportExcel"));
+    if (hit2 && hit2.label) expPage = task.page(hit2.label);
+    log("tabs_after_mouse_export", tabs2.map((t) => String(t.url || "").slice(0, 80)));
+  }
   if (!expPage) {
-    const txt = await page.evaluate(() => (document.body.innerText || "").replace(/\s+/g, " ")).catch(() => "");
-    if (/5分钟|五分钟|间隔|频繁/.test(txt)) throw new Error("rate_limited:两次导出间隔需≥5分钟，请稍后重试");
+    // 只认 toast/提示元素，不能用弹窗里的静态说明（那里永远写着 5 分钟）
+    const toast = await page.evaluate(() => {
+      const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+      const txt = (e) => (e ? (e.innerText || "").replace(/\s+/g, " ").trim() : "");
+      const cls = (e) => String(e.className || "");
+      const cands = [...document.querySelectorAll("div,span")].filter((e) => vis(e) && /toast|message|notification|Message/i.test(cls(e)) && txt(e)).map((e) => txt(e)).slice(0, 5);
+      return cands.join(" | ");
+    }).catch(() => "");
+    log("export_toast", toast);
+    if (/两次导出|间隔|5分钟|五分钟|频繁/.test(toast)) throw new Error("rate_limited:两次导出间隔需≥5分钟，请稍后重试");
     throw new Error("export_page_not_found");
   }
   await expPage.waitForLoadState("load", { timeout: 20000 }).catch(() => {});
