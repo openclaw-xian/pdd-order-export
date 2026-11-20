@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 — 2026-11-20
+
+- 导出冷却：`_state/order-export-cooldowns.json` 记录每店上次导出，5 分钟内先等（`waitCooldown/cooldownSec`）。
+- 报表复用：生成页开不出时，打开「已生成报表」，**只下载日期范围匹配的报表**；下载后校验，不再拿错区间。
+- 数据校验：页面查询单量 vs CSV 去重订单号；CSV 订单日期必须在目标区间；不一致直接失败。
+- CSV 解析升级：支持引号/换行；按订单号去重、多行订单按首行汇总；动态列名匹配。
+- 元数据补全：查询单量、日期范围、多行订单、下载源、目标锁、本地时区、同期文件。
+- 失败证据：异常/captcha 自动截图 + `failure-*.json`（URL/tabs/正文）。
+- 页面预算：`page_budget_full` 返回 needs；新建页前清理 agent 旧页。
+- 店铺：`refreshStores` 强制重扫 profiles。
+- 复测：碧竹 457 done；5 分钟内重跑复用报表 done；冷却等待 + 复用通过。
+
 ## 0.1.7 — 2026-11-20
 
 - 导出页新标签在 `task.tabs()` 里但 **label 为空**（或页面预算开不出）时，当前页直接 `goto /orders/exportExcel?exportType=0` 兜底，再点下载。

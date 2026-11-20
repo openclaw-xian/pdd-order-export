@@ -43,6 +43,11 @@ node <skill目录>/run.mjs <config.json>
 - **两者都没有时**：自动扫描 ego profiles 生成 `_stores.json`（`STORES_DISCOVERED`）
 - 默认**串行**执行（下载目录共享，避免并发拿错文件）
 - **失败/`needs` 时页面默认保留**（输出 `PAGE_LEFT_OPEN=1`），方便人工处理滑块/检查；成功默认关闭；`keepOpen:true` 可让成功也保留
+
+可选配置：
+- `waitCooldown`（默认 true）：按 `_state/order-export-cooldowns.json` 记录，5 分钟内再跑先等待
+- `cooldownSec`（默认 300）：导出冷却秒数
+- `refreshStores`：忽略 `_stores.json`，重新扫 profiles 发现店铺
 - worker 会强制确认：全部订单页签（`tab=0`）+ 订单状态/售后状态=全部 + 超时状态=不限；不满足直接失败
 - 当前只支持「全部订单(近3个月)」范围：区间 ≤92 天且起始日不早于今天−92 天；更早日期未实现
 
@@ -88,11 +93,16 @@ node <skill目录>/run.mjs doctor.json
 - 等「下载报表」出现后点一次；文件下载到系统 Downloads（随机前缀 + `orders_export<时间>.csv`）
 - 平台限制：单次区间 ≤3 个月；两次导出间隔 ≥5 分钟；任务保留 24 小时（可在「已生成报表」重下）
 - 下载文件可能仍被浏览器占用：必须等大小稳定后再复制，失败重试
+- **冷却复用**：每次成功导出记到 `_state/order-export-cooldowns.json`；5 分钟内重跑会先等待。生成页开不出时，自动打开「已生成报表」，**只下载日期范围匹配的报表**
+- **导出后校验**：页面查询单量 = CSV 去重订单号；订单日期必须在目标区间；不一致直接失败，不静默归档
+- **失败证据**：异常/captcha/限频自动截图 + 记录 URL/tabs/页面文本到 `<run>/logs/<店铺>-failure-*.png|json`
 
 ## 条件不满足时
 
 - 店铺未登录/找不到 → `NEEDS=needs_user_action`（退出码 4），带 question + availableProfiles；让用户登录后重跑
 - **滑块验证**：页面弹出「请向右滑块完成拼图」→ `captcha_required`（`NEEDS`，退出码 4）；必须人工完成滑块后再重跑，不要连续点导出
+- **单量/日期不一致**：`count_mismatch` / `report_range_mismatch`（exit 5）；查导出是否复用错报表或 CSV 漏行
+- **页面预算满**：`page_budget_full`（`NEEDS`，exit 4）；关闭该店铺多余标签页
 - 日期/根目录/ego/清单问题 → `PREFLIGHT=needs_user_input`（退出码 3）
 - 失败 → `FAILED=job_failed`（退出码 5）
 

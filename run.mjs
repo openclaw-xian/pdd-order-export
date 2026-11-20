@@ -66,6 +66,9 @@ let storesFromConfig = false;
 if (CFG.shops && CFG.shops.length) {
   stores = CFG.shops.map((s) => (typeof s === "string" ? { shop: s } : s)).filter((s) => s && s.shop);
   storesFromConfig = true;
+} else if (CFG.refreshStores) {
+  stores = [];
+  storesFromConfig = false;
 } else if (existsSync(STORES_CFG)) {
   try {
     const reg = JSON.parse(await fs.readFile(STORES_CFG, "utf8"));
@@ -127,6 +130,8 @@ async function runOne(store, i, mode = "run") {
     mode,
     resultPath: mode === "doctor" ? path.join(os.tmpdir(), "pdd-order-doctor-" + RUN_ID + "-" + i + ".json") : path.join(RESULT_DIR, store.shop + ".json"),
     keepOpen: !!CFG.keepOpen,
+    waitCooldown: CFG.waitCooldown !== false,
+    cooldownSec: Number(CFG.cooldownSec || 300),
     logPath: path.join(LOG_DIR, store.shop + ".log"),
     storesConfig: STORES_CFG,
   };
@@ -207,6 +212,7 @@ const report = {
     paySum: c.result.paySum,
     recvSum: c.result.recvSum,
     sha256: c.result.sha256,
+    evidence: c.result.evidence,
     error: c.result.error,
     needs: c.result.needs,
     wallSec: c.wallSec,

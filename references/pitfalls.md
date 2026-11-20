@@ -31,7 +31,10 @@ node run.mjs order-config.json
 | 选了日期但查询没变 | 漏点「确认」 | 选完必须点确认并回读输入框 |
 | 生成报表没反应 | 按钮在弹窗里，可能还没启用；或 5 分钟导出限制 | 等按钮可用；检查导出间隔 |
 | 下载文件 EBUSY | 浏览器仍在写/持句柄 | worker 先 `task.finish` 关页释放句柄，再等大小稳定 copy；失败重试 |
-| 归档目标 EBUSY | 目标 CSV 被 Excel/WPS 打开 | worker 自动改写为 `.new-<时间>.csv`，`订单信息.md` 记录实际文件名 |
+| 5 分钟内重跑导出 | 平台按账号限频 | worker 读 `_state/order-export-cooldowns.json` 先等；生成页开不出则复用同日期范围已生成报表 |
+| 复用报表拿错区间 | 导出页可能有多份报表 | 只找「拼单成功时间 = 目标区间」的下载按钮；下载后再按 CSV 日期校验 |
+| 查询单量和 CSV 不一致 | 导出漏行/复用错报表 | `count_mismatch` 直接失败，不静默归档 |
+| 目标文件被 Excel 占用 | Windows 文件锁 | 自动写 `.new-<时间>.csv`，md 记录实际文件名 |
 | 跑完页面被关 | worker 默认结束任务释放页面 | 失败/captcha 现在默认保留页（`PAGE_LEFT_OPEN`）；成功想保留加 `keepOpen:true` |
 | 生成报表后新页在 tabs 里但 label 为空 | ego 新页未托管，`task.page(label)` 取不到 | worker 用 `page.goto(exportExcel)` 在当前页兜底，再下载 |
 | 生成报表后弹出「请向右滑块完成拼图」 | 平台风控，频繁导出/连续点击触发 | **不能自动绕过**；worker 识别 `captcha_required` 交回用户，手动滑块后重跑 |

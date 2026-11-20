@@ -11,7 +11,7 @@ worker-order.mjs   ego 进程内：找店 → 日期 → 查询 → 批量导出
 
 1. 读 config：`from/to/root/shops|_stores.json/ego/worker`
 2. 预检：日期格式/倒挂/未来；根目录（非 C 盘缺失自动创建）；ego 可用；店铺清单
-   - 店铺来源：config `shops` > `<root>/_stores.json` > **自动扫描 ego profiles 生成清单**（`STORES_DISCOVERED`，空结果重试一次）；仍无 → `stores_config_missing`
+   - 店铺来源：config `shops` > `<root>/_stores.json` > **自动扫描 ego profiles 生成清单**（`STORES_DISCOVERED`，空结果重试一次）；`refreshStores:true` 强制重扫；仍无 → `stores_config_missing`
    - 问题 → `PREFLIGHT=needs_user_input`，退出码 3
 3. 期间目录/标签：整月 `YYYY-MM` / `<M>月`；区间 `from_to` / `<M月D日-M月D日>`
 4. 逐店串行执行（下载目录共享，避免并发拿错文件）
@@ -32,21 +32,23 @@ worker-order.mjs   ego 进程内：找店 → 日期 → 查询 → 批量导出
 3. **查询**：点「查询」→ 读 `共查询到 N 个订单`
 4. **导出**：
    - 点「批量导出」→ 等弹窗
-   - 点「生成报表」→ 等新标签页 `/orders/exportExcel?exportType=0`（popup 或 task.tabs 兜底）
-   - 若 tabs 里有 exportExcel 但 **label 为空/页面预算开不出新页** → 当前页直接 `goto` 导出页兜底
-   - 若弹窗提示 5 分钟间隔 → `rate_limited`
+   - 生成前按 `_state/order-export-cooldowns.json` 等冷却（`waitCooldown`/`cooldownSec`）
+   - 生成页没开出来 → 当前页打开 `/orders/exportExcel`，**只选日期范围匹配的报表下载**（复用已有任务）
+   - 点「生成报表」→ 等新标签页 `/orders/exportExcel?exportType=0`（popup 或 task.tabs 兜底）；若弹窗提示 5 分钟间隔 → `rate_limited`
    - 若出现「请向右滑块完成拼图」→ `captcha_required`（人工处理，不重试）
-   - 等「下载报表」按钮（最长 30s）
+   - 等匹配日期范围的「下载报表」按钮（最长 30s）
    - 记录 Downloads 现有文件 → 点下载一次 → 轮询新增 `orders_export` 文件（最长 30s）
    - **先结束 task 关闭页面释放文件句柄**，再复制；下载文件大小需稳定
 5. **归档**：
    - 等文件可读（大小稳定）→ `copyFile` 到 `<periodDir>/<店铺>-订单-<label>.csv`，再删源文件
    - 失败重试 40×500ms，超时 `download_copy_failed`
    - 目标被 Excel/WPS 占用（EBUSY/EPERM）→ 自动改写到 `<名字>.new-<时间>.csv`，继续成功；`订单信息.md` 记录实际文件名
-6. **元数据**：
-   - 读 CSV（UTF-8 BOM），统计去重订单号、行数、用户实付合计、商家实收合计、状态分布、SHA-256
-   - 写 `订单信息.md`
-7. 结果：`{status, orders, csvRows, csvName, path, paySum, recvSum, sha256}`
+6. **元数据 + 校验**：
+   - 读 CSV（UTF-8 BOM，支持引号/换行），统计去重订单号、行数、实付/实收、状态分布、日期范围、SHA-256
+   - **校验**：页面查询单量 == CSV 去重订单号；CSV 日期在 `from~to`；不一致失败
+   - 写 `订单信息.md`（含查询单量、多行订单、数据日期、下载源、目标锁、同期文件）
+7. **失败证据**：异常时截图 + 写 `failure-*.json`（URL/tabs/正文），路径进 report
+8. 结果：`{status, orders, csvRows, csvName, path, paySum, recvSum, sha256, dateMin, dateMax, multiRow}`
 
 ## 日期算法要点
 

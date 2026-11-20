@@ -17,6 +17,8 @@ const ROOT = (JOB.root || "D:/对账账单").replace(/\\/g, "/").replace(/\/$/, 
 const PERIOD_DIR = ROOT + "/" + JOB.shop + "/" + JOB.periodDir;
 const RESULT_PATH = JOB.resultPath;
 const DOWNLOADS = path.join(os.homedir(), "Downloads");
+const COOLDOWN_FILE = ROOT + "/_state/order-export-cooldowns.json";
+const COOLDOWN_MS = Math.max(60, Number(JOB.cooldownSec || 300)) * 1000;
 
 const pad2 = (n) => String(n).padStart(2, "0");
 function localTodayIso() {
@@ -138,12 +140,26 @@ async function ensureOrderListView() {
   return true;
 }
 
+async function newPageSafe() {
+  let tabs = [];
+  try { tabs = await task.tabs(); } catch (e) {}
+  if (tabs.length >= 7) {
+    for (const t of tabs) {
+      if (!t.label) continue;
+      try { await task.page(t.label).close(); log("closed_agent_page", t.label); } catch (e) {}
+    }
+    tabs = await task.tabs().catch(() => []);
+  }
+  if (tabs.length >= 8) throw new Error("page_budget_full:请关闭多余标签页（当前 " + tabs.length + "/8）");
+  return task.newPage();
+}
+
 async function openShopSpace() {
   let shopName = "";
   if (JOB.profile) {
     try {
       await resolveSpace();
-      page = await task.newPage();
+      page = await newPageSafe();
       await page.goto("https://mms.pinduoduo.com/orders/list?tab=0", { timeout: 60000 });
       await page.waitForLoadState("load", { timeout: 30000 }).catch(() => {});
       await page.waitForTimeout(1200);
@@ -163,7 +179,7 @@ async function openShopSpace() {
       JOB.profile = hit.profile;
       await updateRegistry([hit]);
       await resolveSpace();
-      page = await task.newPage();
+      page = await newPageSafe();
       await page.goto("https://mms.pinduoduo.com/orders/list?tab=0", { timeout: 60000 });
       await page.waitForLoadState("load", { timeout: 30000 }).catch(() => {});
       await page.waitForTimeout(1200);
@@ -171,7 +187,7 @@ async function openShopSpace() {
     }
     if (!hit || shopName !== JOB.shop) throw new Error("shop_not_logged_in:" + JOB.shop);
   }
-  if (!page) page = await task.newPage();
+  if (!page) page = await newPageSafe();
   return shopName;
 }
 
@@ -361,6 +377,47 @@ async function detectCaptcha() {
   }).catch(() => false);
 }
 
+async function waitExportCooldown() {
+  if (JOB.waitCooldown === false) return;
+  let state = {};
+  try { state = JSON.parse(await fs.readFile(COOLDOWN_FILE, "utf8")); } catch (e) {}
+  const last = Number((state[JOB.shop] && state[JOB.shop].lastExportAt) || 0);
+  const remain = last + COOLDOWN_MS - Date.now();
+  if (remain > 0) {
+    const waitMs = Math.min(remain + 3000, COOLDOWN_MS + 5000);
+    log("cooldown_wait", Math.round(waitMs / 1000) + "s");
+    await sleep(waitMs);
+  }
+}
+
+async function markExportDone() {
+  let state = {};
+  try { state = JSON.parse(await fs.readFile(COOLDOWN_FILE, "utf8")); } catch (e) {}
+  state[JOB.shop] = { lastExportAt: Date.now(), label: JOB.label, at: localStamp() };
+  await fs.mkdir(path.dirname(COOLDOWN_FILE), { recursive: true }).catch(() => {});
+  await fs.writeFile(COOLDOWN_FILE, JSON.stringify(state, null, 1), "utf8").catch(() => {});
+}
+
+async function findReportDownload(pg = page) {
+  const expected = JOB.from + " 00:00 到 " + plusDays(JOB.to, 1) + " 00:00";
+  return pg.evaluate(({ expected }) => {
+    const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const txt = (e) => (e ? (e.innerText || "").replace(/\s+/g, " ").trim() : "");
+    for (const e of document.querySelectorAll("div,span")) {
+      if (!vis(e) || !txt(e).includes("拼单成功时间") || !txt(e).includes(expected)) continue;
+      let node = e;
+      for (let up = 0; up < 8 && node; up++, node = node.parentElement) {
+        const btn = [...node.querySelectorAll("button,span,div,a")].find((b) => vis(b) && txt(b) === "下载报表");
+        if (btn) {
+          const r = btn.getBoundingClientRect();
+          return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), expected };
+        }
+      }
+    }
+    return null;
+  }, { expected }).catch(() => null);
+}
+
 async function exportOrders() {
   await clickText("批量导出");
   await page.waitForTimeout(1800);
@@ -368,6 +425,7 @@ async function exportOrders() {
   log("export_modal", modalOk);
   if (!modalOk) throw new Error("export_modal_not_open");
   await dismissPrompt();
+  await waitExportCooldown();
 
   // 生成报表：标记按钮，用 page.click（鼠标点击弹窗按钮不稳定）
   let genState = await page.evaluate(() => {
@@ -402,6 +460,7 @@ async function exportOrders() {
   const pop = await popP;
   await page.waitForTimeout(1200);
   let expPage = pop && pop.label ? pop : null;
+  let reusedExisting = false;
   if (!expPage) {
     const tabs = await task.tabs();
     const hit = tabs.find((t) => String(t.url || "").includes("/orders/exportExcel"));
@@ -432,7 +491,14 @@ async function exportOrders() {
     log("tabs_after_mouse_export", tabs2.map((t) => String(t.url || "").slice(0, 80)));
   }
   if (!expPage) {
-    // 只认 toast/提示元素，不能用弹窗里的静态说明（那里永远写着 5 分钟）
+    // 生成页没开出来（被限频/预算拦截）：当前页直接打开导出页，复用同区间已有报表
+    log("export_page_fallback_nav");
+    await page.goto("https://mms.pinduoduo.com/orders/exportExcel?exportType=0", { timeout: 60000 });
+    await page.waitForTimeout(1500);
+    expPage = page;
+    reusedExisting = true;
+  }
+  if (!expPage) {
     const toast = await page.evaluate(() => {
       const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
       const txt = (e) => (e ? (e.innerText || "").replace(/\s+/g, " ").trim() : "");
@@ -446,21 +512,15 @@ async function exportOrders() {
   }
   await expPage.waitForLoadState("load", { timeout: 20000 }).catch(() => {});
   await expPage.waitForTimeout(1500);
+  if (!reusedExisting) await markExportDone();
 
-  // 等下载按钮
+  // 等「下载报表」；只点与本次日期范围匹配的报表
   let dlBtn = null;
   for (let i = 0; i < 30 && !dlBtn; i++) {
-    dlBtn = await expPage.evaluate(() => {
-      const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-      const txt = (e) => (e ? (e.innerText || "").trim() : "");
-      const b = [...document.querySelectorAll("button,span,div,a")].filter((e) => vis(e) && txt(e) === "下载报表")[0];
-      if (!b) return null;
-      const r = b.getBoundingClientRect();
-      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
-    });
+    dlBtn = await findReportDownload(expPage);
     if (!dlBtn) await expPage.waitForTimeout(1000);
   }
-  if (!dlBtn) throw new Error("download_button_not_found");
+  if (!dlBtn) throw new Error("report_not_found_for_range:" + JOB.from + "~" + JOB.to);
 
   const before = await fs.readdir(DOWNLOADS).catch(() => []);
   await expPage.mouse.click(dlBtn.x, dlBtn.y);
@@ -512,44 +572,105 @@ async function exportOrders() {
 }
 
 // ---------- CSV 元数据 ----------
-function parseCsvLine(line) {
-  const out = [];
-  let cur = "", q = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') { if (q && line[i + 1] === '"') { cur += '"'; i++; } else q = !q; }
-    else if (ch === "," && !q) { out.push(cur); cur = ""; }
-    else cur += ch;
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cur = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      if (q && text[i + 1] === '"') { cur += '"'; i++; }
+      else q = !q;
+    } else if (ch === "," && !q) { row.push(cur); cur = ""; }
+    else if ((ch === "\n" || ch === "\r") && !q) {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(cur); cur = "";
+      if (row.some((c) => String(c).length > 0)) rows.push(row);
+      row = [];
+    } else cur += ch;
   }
-  out.push(cur);
-  return out;
+  row.push(cur);
+  if (row.some((c) => String(c).length > 0)) rows.push(row);
+  return rows;
 }
 
-async function writeOrderInfo(dest, count, fileName) {
+function csvHeaderIndex(header, names) {
+  const norm = (x) => String(x || "").replace(/\s+/g, "").replace(/（/g, "(").replace(/）/g, ")");
+  for (const name of names) {
+    const i = header.findIndex((h) => norm(h) === norm(name));
+    if (i >= 0) return i;
+  }
+  for (const name of names) {
+    const i = header.findIndex((h) => norm(h).includes(norm(name)));
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+
+function localStamp() {
+  const d = new Date(Date.now() + 8 * 3600 * 1000);
+  return d.toISOString().replace("T", " ").slice(0, 19) + " +08:00";
+}
+
+async function writeOrderInfo(dest, count, fileName, srcName, targetLocked) {
   const raw = await fs.readFile(dest);
   const bom = raw[0] === 0xef && raw[1] === 0xbb && raw[2] === 0xbf;
   const text = raw.toString("utf8").replace(/^\uFEFF/, "");
-  const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
-  const header = lines.length ? parseCsvLine(lines[0]) : [];
-  const rows = lines.slice(1);
-  const idx = (name) => header.findIndex((h) => h === name);
-  const oid = idx("订单号");
-  const statusI = idx("订单状态");
-  const payI = idx("用户实付金额(元)");
-  const recvI = idx("商家实收金额(元)");
-  let uniq = 0;
-  if (oid >= 0) uniq = new Set(rows.map((l) => parseCsvLine(l)[oid]).filter(Boolean)).size;
+  const parsed = parseCsv(text);
+  const header = parsed[0] || [];
+  const dataRows = parsed.slice(1);
+  const oid = csvHeaderIndex(header, ["订单号", "订单编号"]);
+  const statusI = csvHeaderIndex(header, ["订单状态"]);
+  const payI = csvHeaderIndex(header, ["用户实付金额(元)", "用户实付金额"]);
+  const recvI = csvHeaderIndex(header, ["商家实收金额(元)", "商家实收金额"]);
+  const timeI = csvHeaderIndex(header, ["订单成交时间", "订单下单时间", "成交时间", "下单时间"]);
+
+  // 一单多行时按订单号取首行，避免金额/状态重复计数
+  const orderMap = new Map();
+  if (oid >= 0) {
+    for (const row of dataRows) {
+      const key = String(row[oid] || "").trim();
+      if (key && !orderMap.has(key)) orderMap.set(key, row);
+    }
+  }
+  const orderRows = oid >= 0 ? [...orderMap.values()] : dataRows;
+  const uniq = oid >= 0 ? orderMap.size : dataRows.length;
+  const multiRow = dataRows.length !== uniq;
+
   const sum = (i) => {
     if (i < 0) return null;
     let s = 0;
-    for (const l of rows) { const v = parseCsvLine(l)[i]; const n = Number(String(v || "").replace(/,/g, "")); if (Number.isFinite(n)) s += n; }
+    for (const row of orderRows) {
+      const n = Number(String(row[i] || "").replace(/,/g, ""));
+      if (Number.isFinite(n)) s += n;
+    }
     return Number(s.toFixed(2));
   };
   const statuses = {};
-  if (statusI >= 0) for (const l of rows) { const v = parseCsvLine(l)[statusI] || ""; statuses[v] = (statuses[v] || 0) + 1; }
+  if (statusI >= 0) {
+    for (const row of orderRows) {
+      const v = row[statusI] || "";
+      statuses[v] = (statuses[v] || 0) + 1;
+    }
+  }
+  let dateMin = "", dateMax = "";
+  if (timeI >= 0) {
+    for (const row of orderRows) {
+      const d = String(row[timeI] || "").trim().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+      if (!dateMin || d < dateMin) dateMin = d;
+      if (!dateMax || d > dateMax) dateMax = d;
+    }
+  }
   const crypto = await import("node:crypto");
   const sha = crypto.createHash("sha256").update(raw).digest("hex");
-  const md = [
+  const siblings = [];
+  for (const name of ["账单信息.md", "推广花费.md"]) {
+    try {
+      await fs.access(PERIOD_DIR + "/" + name);
+      siblings.push(name);
+    } catch (e) {}
+  }
+  const libs = [
     "# 订单信息 · " + JOB.shop + " · " + JOB.label,
     "",
     "| 项 | 值 |",
@@ -557,25 +678,48 @@ async function writeOrderInfo(dest, count, fileName) {
     "| 店铺 | " + JOB.shop + " |",
     "| 期间 | " + JOB.from + " ~ " + JOB.to + "（筛选 " + JOB.from + " 00:00:00 ~ " + plusDays(JOB.to, 1) + " 00:00:00） |",
     "| 报表类型 | 对账报表 |",
+    "| 查询单量（页面） | " + count + " |",
     "| 订单数（去重订单号） | " + uniq + " |",
-    "| CSV 数据行数 | " + rows.length + " |",
+    "| CSV 数据行数 | " + dataRows.length + " |",
+    "| 多行订单 | " + (multiRow ? "是（" + dataRows.length + " 行 / " + uniq + " 单，按首行汇总）" : "否") + " |",
+    "| 数据日期范围 | " + (dateMin && dateMax ? dateMin + " ~ " + dateMax : "未读到") + " |",
     "| 用户实付合计（元） | " + (sum(payI) == null ? "未读到" : sum(payI)) + " |",
     "| 商家实收合计（元） | " + (sum(recvI) == null ? "未读到" : sum(recvI)) + " |",
     "| 文件 | `" + (fileName || JOB.csvName) + "` |",
     "| 文件大小 | " + raw.length + " 字节 |",
     "| SHA-256 | " + sha + " |",
     "| 编码 | " + (bom ? "UTF-8 BOM" : "UTF-8") + " |",
+    "| 下载源文件 | " + (srcName || "未记录") + " |",
+    "| 目标文件锁定 | " + (targetLocked ? "是（已写 .new 文件）" : "否") + " |",
     "| 来源 | 订单查询 → 批量导出 → 对账报表 → 下载报表 |",
-    "| 导出时间 | " + new Date().toISOString() + " |",
+    "| 导出时间 | " + localStamp() + " |",
     "",
     "## 列名",
     header.join(", "),
     "",
     "## 订单状态分布",
     ...Object.entries(statuses).map(([k, v]) => "- " + k + ": " + v),
-  ].join("\n");
+  ];
+  if (siblings.length) {
+    libs.push("", "## 同期文件", ...siblings.map((x) => "- `" + x + "`"));
+  }
+  const md = libs.join("\n");
   await fs.writeFile(PERIOD_DIR + "/订单信息.md", md, "utf8");
-  return { uniq, rows: rows.length, header, pay: sum(payI), recv: sum(recvI), statuses, sha, bytes: raw.length, bom };
+  return { uniq, rows: dataRows.length, header, pay: sum(payI), recv: sum(recvI), statuses, sha, bytes: raw.length, bom, dateMin, dateMax, multiRow, source: srcName || "", targetLocked: !!targetLocked };
+}
+
+async function saveFailureEvidence(msg) {
+  if (!page || !JOB.logPath) return null;
+  const dir = path.dirname(JOB.logPath);
+  const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  const base = path.join(dir, JOB.shop + "-failure-" + stamp);
+  const out = { error: msg, at: localStamp(), url: "", body: "", tabs: [] };
+  try { out.url = await page.evaluate(() => location.href); } catch (e) {}
+  try { out.body = await page.evaluate(() => (document.body.innerText || "").replace(/\s+/g, " ").slice(0, 1200)); } catch (e) {}
+  try { if (task) out.tabs = (await task.tabs()).map((t) => String(t.url || "").slice(0, 120)); } catch (e) {}
+  try { await page.screenshot({ path: base + ".png" }); out.screenshot = base + ".png"; } catch (e) {}
+  await fs.writeFile(base + ".json", JSON.stringify(out, null, 1), "utf8").catch(() => {});
+  return base + ".png";
 }
 
 async function discoverMode() {
@@ -593,7 +737,7 @@ async function doctor() {
 
 async function main() {
   const shopName = await openShopSpace();
-  if (!page) page = await task.newPage();
+  if (!page) page = await newPageSafe();
   await ensureOrderListView();
   const dateInfo = await setDateRange();
   const count = await queryCount();
@@ -601,11 +745,22 @@ async function main() {
   if (count === null) throw new Error("order_count_not_found");
   const exp = await exportOrders();
   log("export_file", exp.dest);
-  const meta = await writeOrderInfo(exp.dest, count, exp.csvName);
+  const meta = await writeOrderInfo(exp.dest, count, exp.csvName, exp.srcName, exp.targetLocked);
+  if (meta.uniq !== count) {
+    await fs.unlink(exp.dest).catch(() => {});
+    await fs.unlink(PERIOD_DIR + "/订单信息.md").catch(() => {});
+    throw new Error("count_mismatch:query=" + count + " csv=" + meta.uniq);
+  }
+  if (meta.dateMin && meta.dateMax && (meta.dateMin < JOB.from || meta.dateMax > JOB.to)) {
+    await fs.unlink(exp.dest).catch(() => {});
+    await fs.unlink(PERIOD_DIR + "/订单信息.md").catch(() => {});
+    throw new Error("report_range_mismatch:csv=" + meta.dateMin + "~" + meta.dateMax + " expected=" + JOB.from + "~" + JOB.to);
+  }
   return {
     status: "done",
     shop: shopName,
     orders: count,
+    queryCount: count,
     csvRows: meta.rows,
     csvName: exp.csvName,
     targetLocked: exp.targetLocked,
@@ -614,6 +769,10 @@ async function main() {
     recvSum: meta.recv,
     sha256: meta.sha,
     dateText: dateInfo.actual,
+    dateMin: meta.dateMin,
+    dateMax: meta.dateMax,
+    multiRow: meta.multiRow,
+    source: meta.source,
   };
 }
 
@@ -624,7 +783,8 @@ try {
 } catch (e) {
   const msg = String((e && e.message) || e);
   log("ERROR", msg);
-  result = { status: "failed", error: msg };
+  const evidence = await saveFailureEvidence(msg);
+  result = { status: "failed", error: msg, evidence };
   if (msg.includes("shop_not_logged_in") || msg.includes("space_not_found_for")) {
     let profiles = [];
     try { profiles = [...new Set((await listTaskSpaces()).map((s) => String(s.profileName || "")).filter(Boolean))]; } catch (e2) {}
@@ -633,6 +793,11 @@ try {
     result.needs = {
       code: "captcha_required",
       question: "拼多多弹出了「请向右滑块完成拼图」验证。请在 ego 里手动完成滑块（或关闭后重试），完成/通过后再重跑；不要连续点导出。",
+    };
+  } else if (msg.includes("page_budget_full")) {
+    result.needs = {
+      code: "page_budget_full",
+      question: "当前店铺标签页已占满 8 个（ego 页面预算）。请关闭该店铺里多余的标签页后再重跑。",
     };
   }
   await writeResult({ ok: false, ...result });
