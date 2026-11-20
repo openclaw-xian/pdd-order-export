@@ -32,7 +32,10 @@ worker-order.mjs   ego 进程内：找店 → 日期 → 查询 → 批量导出
 3. **查询**：点「查询」→ 读 `共查询到 N 个订单`
 4. **导出**：
    - 点「批量导出」→ 等弹窗
-   - 点「生成报表」→ 等新标签页 `/orders/exportExcel?exportType=0`（popup 或 task.tabs 兜底）；若弹窗提示 5 分钟间隔 → `rate_limited`
+   - 点「生成报表」→ 等新标签页 `/orders/exportExcel?exportType=0`（popup 或 task.tabs 兜底）
+   - 若 tabs 里有 exportExcel 但 **label 为空/页面预算开不出新页** → 当前页直接 `goto` 导出页兜底
+   - 若弹窗提示 5 分钟间隔 → `rate_limited`
+   - 若出现「请向右滑块完成拼图」→ `captcha_required`（人工处理，不重试）
    - 等「下载报表」按钮（最长 30s）
    - 记录 Downloads 现有文件 → 点下载一次 → 轮询新增 `orders_export` 文件（最长 30s）
    - **先结束 task 关闭页面释放文件句柄**，再复制；下载文件大小需稳定

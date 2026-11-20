@@ -406,6 +406,12 @@ async function exportOrders() {
     const tabs = await task.tabs();
     const hit = tabs.find((t) => String(t.url || "").includes("/orders/exportExcel"));
     if (hit && hit.label) expPage = task.page(hit.label);
+    else if (hit) {
+      log("export_page_nav_from_tab");
+      await page.goto("https://mms.pinduoduo.com/orders/exportExcel?exportType=0", { timeout: 60000 });
+      await page.waitForTimeout(1500);
+      expPage = page;
+    }
     log("tabs_after_export", tabs.map((t) => String(t.url || "").slice(0, 80)));
   }
   if (!expPage && genState.marked) {
@@ -417,6 +423,12 @@ async function exportOrders() {
     const tabs2 = await task.tabs();
     const hit2 = tabs2.find((t) => String(t.url || "").includes("/orders/exportExcel"));
     if (hit2 && hit2.label) expPage = task.page(hit2.label);
+    else if (hit2) {
+      log("export_page_nav_from_tab2");
+      await page.goto("https://mms.pinduoduo.com/orders/exportExcel?exportType=0", { timeout: 60000 });
+      await page.waitForTimeout(1500);
+      expPage = page;
+    }
     log("tabs_after_mouse_export", tabs2.map((t) => String(t.url || "").slice(0, 80)));
   }
   if (!expPage) {
