@@ -41,13 +41,15 @@ node <skill目录>/run.mjs <config.json>
 
 - `shops` 也可只写店铺名；或从 `<root>/_stores.json` 读取
 - **两者都没有时**：自动扫描 ego profiles 生成 `_stores.json`（`STORES_DISCOVERED`）
-- 默认**串行**执行（下载目录共享，避免并发拿错文件）
+- 默认**串行**执行；可配 `concurrency`（1–6）并行跑多店，**下载/复制**用全局文件锁串行，避免抢 Downloads
+- 并行前提：每个店铺空间标签页 ≤6（ego 上限 8）；用户/历史标签页需要先清理
 - **失败/`needs` 时页面默认保留**（输出 `PAGE_LEFT_OPEN=1`），方便人工处理滑块/检查；成功默认关闭；`keepOpen:true` 可让成功也保留
 
 可选配置：
-- `waitCooldown`（默认 true）：按 `_state/order-export-cooldowns.json` 记录，5 分钟内再跑先等待
+- `waitCooldown`（默认 true）：按 `_state/cooldowns/<店铺>.json` 记录，5 分钟内再跑先等待
 - `cooldownSec`（默认 300）：导出冷却秒数
 - `refreshStores`：忽略 `_stores.json`，重新扫 profiles 发现店铺
+- `concurrency`（默认 1）：并行店铺数（1–6）；下载步骤仍串行
 - worker 会强制确认：全部订单页签（`tab=0`）+ 订单状态/售后状态=全部 + 超时状态=不限；不满足直接失败
 - 当前只支持「全部订单(近3个月)」范围：区间 ≤92 天且起始日不早于今天−92 天；更早日期未实现
 

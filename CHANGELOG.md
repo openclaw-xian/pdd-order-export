@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 — 2026-11-20
+
+- 并行多店：`concurrency`（1–6）；查询/生成并行，下载/复制用全局锁 `_state/order-download.lock` 串行，避免抢 Downloads。
+- 冷却状态改为每店独立 `_state/cooldowns/<店铺>.json`，并行不互相覆盖。
+- 实测：清理标签后 3 店并行全部 done（枝枝 1488/18.9s、碧竹 457/21.8s、鱼越 484/24.6s），总耗时约 25s。
+- 文档补充并行前提：每店空间标签页 ≤6；用户/历史标签页需先清理。
+
 ## 0.2.0 — 2026-11-20
 
 - 导出冷却：`_state/order-export-cooldowns.json` 记录每店上次导出，5 分钟内先等（`waitCooldown/cooldownSec`）。

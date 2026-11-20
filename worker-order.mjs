@@ -17,7 +17,8 @@ const ROOT = (JOB.root || "D:/对账账单").replace(/\\/g, "/").replace(/\/$/, 
 const PERIOD_DIR = ROOT + "/" + JOB.shop + "/" + JOB.periodDir;
 const RESULT_PATH = JOB.resultPath;
 const DOWNLOADS = path.join(os.homedir(), "Downloads");
-const COOLDOWN_FILE = ROOT + "/_state/order-export-cooldowns.json";
+const COOLDOWN_FILE = ROOT + "/_state/cooldowns/" + JOB.shop.replace(/[\\/:*?"<>|]/g, "_") + ".json";
+const LOCK_FILE = ROOT + "/_state/order-download.lock";
 const COOLDOWN_MS = Math.max(60, Number(JOB.cooldownSec || 300)) * 1000;
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -418,6 +419,32 @@ async function findReportDownload(pg = page) {
   }, { expected }).catch(() => null);
 }
 
+async function acquireDownloadLock() {
+  const start = Date.now();
+  while (Date.now() - start < 180000) {
+    try {
+      const dir = path.dirname(LOCK_FILE);
+      await fs.mkdir(dir, { recursive: true }).catch(() => {});
+      const fh = await fs.open(LOCK_FILE, "wx");
+      await fh.writeFile(JSON.stringify({ shop: JOB.shop, at: Date.now() }), "utf8");
+      return fh;
+    } catch (e) {
+      if (e.code !== "EEXIST" && e.code !== "EPERM" && e.code !== "EACCES") throw e;
+      try {
+        const st = await fs.stat(LOCK_FILE);
+        if (Date.now() - st.mtimeMs > 120000) await fs.unlink(LOCK_FILE).catch(() => {});
+      } catch (e2) {}
+      await sleep(800 + Math.random() * 500);
+    }
+  }
+  throw new Error("download_lock_timeout");
+}
+
+async function releaseDownloadLock(fh) {
+  try { await fh.close(); } catch (e) {}
+  try { await fs.unlink(LOCK_FILE); } catch (e) {}
+}
+
 async function exportOrders() {
   await clickText("批量导出");
   await page.waitForTimeout(1800);
@@ -522,6 +549,8 @@ async function exportOrders() {
   }
   if (!dlBtn) throw new Error("report_not_found_for_range:" + JOB.from + "~" + JOB.to);
 
+  const lock = await acquireDownloadLock();
+  try {
   const before = await fs.readdir(DOWNLOADS).catch(() => []);
   await expPage.mouse.click(dlBtn.x, dlBtn.y);
   let added = null;
@@ -569,6 +598,9 @@ async function exportOrders() {
   if (!copied) throw new Error("download_copy_failed:" + String((lastErr && lastErr.message) || lastErr).slice(0, 120));
   await fs.unlink(src).catch(() => {});
   return { srcName: added, dest: usedDest, csvName: usedName, targetLocked };
+  } finally {
+    await releaseDownloadLock(lock);
+  }
 }
 
 // ---------- CSV 元数据 ----------

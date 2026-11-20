@@ -30,7 +30,7 @@ const RUN_ID = "order-" + new Date().toISOString().replace(/[-:T]/g, "").slice(0
 const RUN_DIR = path.join(ROOT, "_runs", RUN_ID);
 const RESULT_DIR = path.join(RUN_DIR, "results");
 const LOG_DIR = path.join(RUN_DIR, "logs");
-const CONCURRENCY = 1; // 下载目录是共享的，默认串行
+const CONCURRENCY = Math.max(1, Math.min(6, Number(CFG.concurrency || 1))); // 下载步骤由全局锁串行，查询/生成可并行
 
 const from = String(CFG.from || "");
 const to = String(CFG.to || "");
@@ -191,13 +191,18 @@ if (DOCTOR) {
   process.exit(ok ? 0 : 1);
 }
 
-const completed = [];
-for (let i = 0; i < stores.length; i++) {
-  const r = await runOne(stores[i], i);
-  completed.push(r);
-  const s = r.result || {};
-  console.log("DONE " + r.shop + " status=" + (s.status || "?") + " orders=" + (s.orders === undefined ? "-" : s.orders) + " wall=" + r.wallSec + "s" + (s.error ? " err=" + s.error : ""));
+const completed = new Array(stores.length);
+const queue = stores.map((s, i) => ({ s, i }));
+async function poolWorker() {
+  while (queue.length) {
+    const item = queue.shift();
+    const r = await runOne(item.s, item.i);
+    completed[item.i] = r;
+    const s = r.result || {};
+    console.log("DONE " + r.shop + " status=" + (s.status || "?") + " orders=" + (s.orders === undefined ? "-" : s.orders) + " wall=" + r.wallSec + "s" + (s.error ? " err=" + s.error : ""));
+  }
 }
+await Promise.all(Array.from({ length: Math.min(CONCURRENCY, stores.length) }, () => poolWorker()));
 const report = {
   runId: RUN_ID, from, to, periodDir, label,
   createdAt: new Date().toISOString(),

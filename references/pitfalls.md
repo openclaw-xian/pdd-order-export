@@ -18,7 +18,7 @@ node run.mjs order-config.json
 # {"from":"2026-10-01","to":"2026-10-31","shops":[{"shop":"店铺A","profile":"profileA"}]}
 ```
 
-- 默认串行；月度多店逐店跑
+- 默认串行；可配 `concurrency` 并行（下载锁串行）
 - 区间不能超过 3 个月；两次导出间隔 ≥5 分钟
 
 ## 3. 踩坑
@@ -31,7 +31,7 @@ node run.mjs order-config.json
 | 选了日期但查询没变 | 漏点「确认」 | 选完必须点确认并回读输入框 |
 | 生成报表没反应 | 按钮在弹窗里，可能还没启用；或 5 分钟导出限制 | 等按钮可用；检查导出间隔 |
 | 下载文件 EBUSY | 浏览器仍在写/持句柄 | worker 先 `task.finish` 关页释放句柄，再等大小稳定 copy；失败重试 |
-| 5 分钟内重跑导出 | 平台按账号限频 | worker 读 `_state/order-export-cooldowns.json` 先等；生成页开不出则复用同日期范围已生成报表 |
+| 5 分钟内重跑导出 | 平台按账号限频 | worker 读 `_state/cooldowns/<店铺>.json` 先等；生成页开不出则复用同日期范围已生成报表 |
 | 复用报表拿错区间 | 导出页可能有多份报表 | 只找「拼单成功时间 = 目标区间」的下载按钮；下载后再按 CSV 日期校验 |
 | 查询单量和 CSV 不一致 | 导出漏行/复用错报表 | `count_mismatch` 直接失败，不静默归档 |
 | 目标文件被 Excel 占用 | Windows 文件锁 | 自动写 `.new-<时间>.csv`，md 记录实际文件名 |
@@ -42,7 +42,9 @@ node run.mjs order-config.json
 | 多店连续导出 | 平台按账号限制导出频率 | 串行跑、不同账号互不影响；同一账号 5 分钟内只导一次；被拦后冷却重试 |
 | 生成报表点击后无新页 | 可能被频率限制，也可能点击未触发 | worker 先 page.click，再用鼠标补点；只把 toast 里的“间隔/5分钟”判 `rate_limited`，不再误判弹窗静态说明 |
 | 首次无 `_stores.json` | 需要店铺名单 | runner 自动扫 ego profiles 生成（`STORES_DISCOVERED`） |
-| 多店同时导出拿错文件 | Downloads 共享 | 串行执行，每店单独跑 |
+| 多店同时导出拿错文件 | Downloads 共享 | `concurrency` 并行准备/生成，下载/复制用 `order-download.lock` 串行 |
+| 页面预算 8/8 | 历史/用户标签页太多 | 先清理每店空间（留 ≤6 页）；worker 只清自己管理的页，不动用户页 |
+| 批量 adopt 未管理标签页 | ego 的 `as` 标签不能重复 | 清理脚本给每个 tab 唯一 `as`（cleanup1/2/…） |
 | 在待发货页签上跑 | 默认页签可能不是全部订单 | worker 强制校验 `tab=0` 并点「全部订单」 |
 | 状态筛选不是全部 | 用户/上次操作改了筛选 | worker 校验 2 个「全部」+「不限」，否则 `status_filter_not_all` |
 | 页面加载失败仍退出 0 | — | 失败退出码 5；needs 4；预检 3 |
