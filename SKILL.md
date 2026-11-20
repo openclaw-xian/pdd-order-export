@@ -41,7 +41,9 @@ node <skill目录>/run.mjs <config.json>
 
 - `shops` 也可只写店铺名；或从 `<root>/_stores.json` 读取
 - **两者都没有时**：自动扫描 ego profiles 生成 `_stores.json`（`STORES_DISCOVERED`）
-- 默认**串行**执行；可配 `concurrency`（1–6）并行跑多店，**下载/复制**用全局文件锁串行，避免抢 Downloads
+- 下载优先用 ego 的 download 事件 `saveAs`，不再依赖共享 Downloads 轮询；事件不可用时才回退轮询+文件锁
+- 首次/空间被关后用 `profiles()` 按 profile 重建 task space，再跑订单页
+- 默认**串行**执行；可配 `concurrency`（1–6）并行跑多店，**下载/复制**用全局文件锁串行（兜底路径；download 事件本身按页隔离）
 - 并行前提：每个店铺空间标签页 ≤6（ego 上限 8）；用户/历史标签页需要先清理
 - **失败/`needs` 时页面默认保留**（输出 `PAGE_LEFT_OPEN=1`），方便人工处理滑块/检查；成功默认关闭；`keepOpen:true` 可让成功也保留
 

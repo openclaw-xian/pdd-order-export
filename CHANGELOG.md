@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 — 2026-11-20
+
+- 下载主路径改为 ego `download` 事件 + `download.saveAs()`，不再依赖共享 Downloads 轮询；事件不可用才回退。
+- 空间被 `finish()` 关闭后，用 `profiles()` + `profileId` 自动重建 task space，不需要手动先开。
+- 并行实测（空间均被关后重建）：枝枝 1488/27.5s、鱼越 484/36.6s、碧竹 457/45.6s，全部 done。
+- 日志新增 `download_via_event` / `download_via_poll` / `space_created`。
+
 ## 0.3.0 — 2026-11-20
 
 - 并行多店：`concurrency`（1–6）；查询/生成并行，下载/复制用全局锁 `_state/order-download.lock` 串行，避免抢 Downloads。

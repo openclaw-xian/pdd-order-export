@@ -35,7 +35,9 @@ node run.mjs order-config.json
 | 复用报表拿错区间 | 导出页可能有多份报表 | 只找「拼单成功时间 = 目标区间」的下载按钮；下载后再按 CSV 日期校验 |
 | 查询单量和 CSV 不一致 | 导出漏行/复用错报表 | `count_mismatch` 直接失败，不静默归档 |
 | 目标文件被 Excel 占用 | Windows 文件锁 | 自动写 `.new-<时间>.csv`，md 记录实际文件名 |
-| 跑完页面被关 | worker 默认结束任务释放页面 | 失败/captcha 现在默认保留页（`PAGE_LEFT_OPEN`）；成功想保留加 `keepOpen:true` |
+| 跑完页面被关 | worker 默认结束任务释放页面 | 失败/captcha 默认保留页（`PAGE_LEFT_OPEN`）；成功想保留加 `keepOpen:true` |
+| 跑完空间被关 | `finish()` 会结束 task space | 下次 worker 用 `profiles()` + profileId 自动重建 space；不需要手动开 |
+| 下载轮询抢文件 | 系统 Downloads 共享 | 主路径用 `page.waitForEvent("download")` + `saveAs`；兜底才用 Downloads+锁 |
 | 生成报表后新页在 tabs 里但 label 为空 | ego 新页未托管，`task.page(label)` 取不到 | worker 用 `page.goto(exportExcel)` 在当前页兜底，再下载 |
 | 生成报表后弹出「请向右滑块完成拼图」 | 平台风控，频繁导出/连续点击触发 | **不能自动绕过**；worker 识别 `captcha_required` 交回用户，手动滑块后重跑 |
 | 点击生成报表无新页且无 toast | 可能是滑块弹窗挡住 | 先查是否滑块验证；不是再重试点击 |

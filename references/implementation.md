@@ -21,7 +21,7 @@ worker-order.mjs   ego 进程内：找店 → 日期 → 查询 → 批量导出
 
 ## worker（worker-order.mjs）
 
-1. **找店**：按 `profileName` 匹配空间 → 打开订单页 → `.user-name-text` 读店铺名；不符 → 扫描 profiles → 更新 `_stores.json` → 重开；仍不行 → `shop_not_logged_in`
+1. **找店**：按 `profileName` 匹配空间 → 打开订单页 → `.user-name-text` 读店铺名；空间不存在时用 `profiles()` 的 profileId **重建 task space**；仍不符 → 扫描 profiles → 更新 `_stores.json`；再不行 → `shop_not_logged_in`
    - 强制确认「全部订单」页签：URL 含 `tab=0`，否则点页签；再校验
    - 强制确认状态筛选：订单状态/售后状态=全部、超时状态=不限；否则 `status_filter_not_all`
 2. **日期**：
@@ -40,7 +40,8 @@ worker-order.mjs   ego 进程内：找店 → 日期 → 查询 → 批量导出
    - 若出现「请向右滑块完成拼图」→ `captcha_required`（人工处理，不重试）
    - 等匹配日期范围的「下载报表」按钮（最长 30s）
    - 记录 Downloads 现有文件 → 点下载一次 → 轮询新增 `orders_export` 文件（最长 30s）
-   - 下载/复制期间持有 `_state/order-download.lock`（跨进程文件锁），单店下载串行
+   - **主路径**：`expPage.waitForEvent("download")` → `download.saveAs(dest)`；事件不可用才回退 Downloads 轮询
+   - 下载/复制期间持有 `_state/order-download.lock`（跨进程文件锁），兜底路径单店下载串行
    - **先结束 task 关闭页面释放文件句柄**，再复制；下载文件大小需稳定
 5. **归档**：
    - 等文件可读（大小稳定）→ `copyFile` 到 `<periodDir>/<店铺>-订单-<label>.csv`，再删源文件

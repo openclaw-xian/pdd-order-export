@@ -155,6 +155,21 @@ async function newPageSafe() {
   return task.newPage();
 }
 
+async function createSpaceForProfile(profileName) {
+  const ps = await profiles();
+  const p = ps.find((x) => String(x.name || "") === String(profileName || ""));
+  if (!p) return null;
+  const name = "pdd-order-" + profileName + "-" + Date.now();
+  task = await taskSpace(name, { profileId: p.id });
+  page = await newPageSafe();
+  await page.goto("https://mms.pinduoduo.com/orders/list?tab=0", { timeout: 60000 });
+  await page.waitForLoadState("load", { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(1200);
+  const shop = await readShopName();
+  log("space_created", profileName + " -> " + name + " shop=" + shop);
+  return shop;
+}
+
 async function openShopSpace() {
   let shopName = "";
   if (JOB.profile) {
@@ -169,6 +184,14 @@ async function openShopSpace() {
     } catch (e) {
       log("profile_unusable", String((e && e.message) || e));
       shopName = "";
+    }
+    if (!shopName && JOB.profile) {
+      try {
+        const created = await createSpaceForProfile(JOB.profile);
+        if (created) shopName = created;
+      } catch (e2) {
+        log("create_space_failed", String((e2 && e2.message) || e2));
+      }
     }
   }
   if (!shopName || shopName !== JOB.shop) {
@@ -551,53 +574,83 @@ async function exportOrders() {
 
   const lock = await acquireDownloadLock();
   try {
-  const before = await fs.readdir(DOWNLOADS).catch(() => []);
-  await expPage.mouse.click(dlBtn.x, dlBtn.y);
-  let added = null;
-  for (let i = 0; i < 30 && !added; i++) {
-    await expPage.waitForTimeout(1000);
-    const after = await fs.readdir(DOWNLOADS).catch(() => []);
-    added = after.find((f) => !before.includes(f) && f.includes("orders_export"));
-  }
-  if (!added) throw new Error("download_file_not_found");
-  const src = path.join(DOWNLOADS, added);
-  // 浏览器下载句柄会锁文件：先结束 task（关页面）释放句柄，再复制
-  if (task) { try { await task.finish({ keep: [] }); } catch (e) {} task = null; page = null; expPage = null; }
-  await sleep(1200);
-  await fs.mkdir(PERIOD_DIR, { recursive: true }).catch(() => {});
-  const dest = path.join(PERIOD_DIR, JOB.csvName);
-  let usedDest = dest, usedName = JOB.csvName, targetLocked = false;
-  let copied = false, lastErr = null, lastSize = -1;
-  for (let i = 0; i < 40 && !copied; i++) {
-    try {
-      const st = await fs.stat(src);
-      if (st.size > 0 && st.size === lastSize) {
-        try {
-          await fs.copyFile(src, dest);
-          copied = true;
-          break;
-        } catch (e) {
-          if (e && (e.code === "EBUSY" || e.code === "EPERM" || e.code === "EACCES")) {
-            const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(4, 14);
-            const altName = JOB.csvName.replace(/\.csv$/i, ".new-" + stamp + ".csv");
-            const altDest = path.join(PERIOD_DIR, altName);
-            await fs.copyFile(src, altDest);
-            usedDest = altDest;
-            usedName = altName;
-            targetLocked = true;
-            copied = true;
-            break;
-          }
-          lastErr = e;
+    await fs.mkdir(PERIOD_DIR, { recursive: true }).catch(() => {});
+    const dest = path.join(PERIOD_DIR, JOB.csvName);
+    let usedDest = dest, usedName = JOB.csvName, targetLocked = false;
+    let srcName = "";
+    const before = await fs.readdir(DOWNLOADS).catch(() => []);
+
+    // 主路径：ego download 事件，直接 saveAs；不再轮询共享 Downloads
+    const downloadP = expPage.waitForEvent("download", { timeout: 25000 }).catch(() => null);
+    await expPage.mouse.click(dlBtn.x, dlBtn.y);
+    const dl = await downloadP;
+    if (dl) {
+      try { srcName = dl.suggestedFilename(); } catch (e) {}
+      log("download_via_event", srcName);
+      try {
+        await dl.saveAs(dest);
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+        if (/EBUSY|EPERM|EACCES/.test(msg)) {
+          const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(4, 14);
+          const altName = JOB.csvName.replace(/\.csv$/i, ".new-" + stamp + ".csv");
+          const altDest = path.join(PERIOD_DIR, altName);
+          await dl.saveAs(altDest);
+          usedDest = altDest;
+          usedName = altName;
+          targetLocked = true;
+        } else {
+          throw new Error("download_save_failed:" + msg.slice(0, 120));
         }
       }
-      lastSize = st.size;
-    } catch (e) { lastErr = e; }
-    await sleep(500);
-  }
-  if (!copied) throw new Error("download_copy_failed:" + String((lastErr && lastErr.message) || lastErr).slice(0, 120));
-  await fs.unlink(src).catch(() => {});
-  return { srcName: added, dest: usedDest, csvName: usedName, targetLocked };
+      if (task) { try { await task.finish({ keep: [] }); } catch (e) {} task = null; page = null; expPage = null; }
+      return { srcName: srcName || "download-event", dest: usedDest, csvName: usedName, targetLocked };
+    }
+
+    // 兼容路径：download 事件不可用时，用点击前后的 Downloads 差异（已点击，不再重复点）
+    log("download_via_poll");
+    let added = null;
+    for (let i = 0; i < 30 && !added; i++) {
+      await expPage.waitForTimeout(1000);
+      const after = await fs.readdir(DOWNLOADS).catch(() => []);
+      added = after.find((f) => !before.includes(f) && f.includes("orders_export"));
+    }
+    if (!added) throw new Error("download_file_not_found");
+    const src = path.join(DOWNLOADS, added);
+    // 浏览器下载句柄会锁文件：先结束 task（关页面）释放句柄，再复制
+    if (task) { try { await task.finish({ keep: [] }); } catch (e) {} task = null; page = null; expPage = null; }
+    await sleep(1200);
+    let copied = false, lastErr = null, lastSize = -1;
+    for (let i = 0; i < 40 && !copied; i++) {
+      try {
+        const st = await fs.stat(src);
+        if (st.size > 0 && st.size === lastSize) {
+          try {
+            await fs.copyFile(src, dest);
+            copied = true;
+            break;
+          } catch (e) {
+            if (e && (e.code === "EBUSY" || e.code === "EPERM" || e.code === "EACCES")) {
+              const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(4, 14);
+              const altName = JOB.csvName.replace(/\.csv$/i, ".new-" + stamp + ".csv");
+              const altDest = path.join(PERIOD_DIR, altName);
+              await fs.copyFile(src, altDest);
+              usedDest = altDest;
+              usedName = altName;
+              targetLocked = true;
+              copied = true;
+              break;
+            }
+            lastErr = e;
+          }
+        }
+        lastSize = st.size;
+      } catch (e) { lastErr = e; }
+      await sleep(500);
+    }
+    if (!copied) throw new Error("download_copy_failed:" + String((lastErr && lastErr.message) || lastErr).slice(0, 120));
+    await fs.unlink(src).catch(() => {});
+    return { srcName: added, dest: usedDest, csvName: usedName, targetLocked };
   } finally {
     await releaseDownloadLock(lock);
   }
