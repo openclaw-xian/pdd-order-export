@@ -126,6 +126,7 @@ async function runOne(store, i, mode = "run") {
     csvName: store.shop + "-订单-" + label + ".csv",
     mode,
     resultPath: mode === "doctor" ? path.join(os.tmpdir(), "pdd-order-doctor-" + RUN_ID + "-" + i + ".json") : path.join(RESULT_DIR, store.shop + ".json"),
+    keepOpen: !!CFG.keepOpen,
     logPath: path.join(LOG_DIR, store.shop + ".log"),
     storesConfig: STORES_CFG,
   };

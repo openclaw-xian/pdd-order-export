@@ -625,6 +625,11 @@ try {
   }
   await writeResult({ ok: false, ...result });
 } finally {
-  try { if (task) await task.finish({ keep: [] }); } catch (e) {}
+  const keep = JOB.keepOpen === true || (result && result.status === "failed");
+  if (task && keep) {
+    console.log("PAGE_LEFT_OPEN=1");
+  } else {
+    try { if (task) await task.finish({ keep: [] }); } catch (e) {}
+  }
 }
 console.log("WORKER_RESULT=" + JSON.stringify({ shop: JOB.shop, status: result && result.status, orders: result && result.orders, elapsed: ((Date.now() - t0) / 1000).toFixed(1) }));
