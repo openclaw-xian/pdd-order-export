@@ -124,7 +124,7 @@
 | 上一轮 | 鱼越曾 `date_not_applied`；日期逻辑改为 3 次重试/面板重开/确认补点后通过 |
 | 失败截图 | 用临时 debug 钩子在建页后抛错：生成 `failure-*.png`（218KB）+ `failure-*.json`（URL/tabs/正文） |
 | 目标文件锁 | `saveAs` 遇锁自动 `.new`，done；md 记录实际文件名 |
-| 页面预算 8/8 | 仍难人工制造（agent 创建的页可被 worker 关闭，user/unknown 页需真实用户标签）；`page_budget_full` needs 代码未实测 |
+| 页面预算 8/8 | 用户真实开 8 个标签页：worker 启动即报 `page_budget_full:当前 8/8`；随后自动按 profile 重建新空间，1488 done 43.8s（exit 0） |
 | 多行订单 | 13 个历史 CSV 均 1 行/单，无多件样本 |
 | 0 单/跨年/闰年 | 未测 |
 

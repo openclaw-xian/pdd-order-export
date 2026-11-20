@@ -108,7 +108,7 @@ node <skill目录>/run.mjs doctor.json
 - 店铺未登录/找不到 → `NEEDS=needs_user_action`（退出码 4），带 question + availableProfiles；让用户登录后重跑
 - **滑块验证**：页面弹出「请向右滑块完成拼图」→ `captcha_required`（`NEEDS`，退出码 4）；必须人工完成滑块后再重跑，不要连续点导出
 - **单量/日期不一致**：`count_mismatch` / `report_range_mismatch`（exit 5）；查导出是否复用错报表或 CSV 漏行
-- **页面预算满**：`page_budget_full`（`NEEDS`，exit 4）；关闭该店铺多余标签页
+- **页面预算满**：`page_budget_full`；worker 会先按 profile 重建新空间，重建成功则继续；仍失败才 `NEEDS`/exit 4
 - 日期/根目录/ego/清单问题 → `PREFLIGHT=needs_user_input`（退出码 3）
 - 失败 → `FAILED=job_failed`（退出码 5）
 
