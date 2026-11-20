@@ -133,6 +133,7 @@ async function runOne(store, i, mode = "run") {
     waitCooldown: CFG.waitCooldown !== false,
     cooldownSec: Number(CFG.cooldownSec || 300),
     reuseExisting: !!CFG.reuseExisting,
+
     logPath: path.join(LOG_DIR, store.shop + ".log"),
     storesConfig: STORES_CFG,
   };

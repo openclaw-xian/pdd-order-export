@@ -334,10 +334,11 @@ async function setDateRange() {
   const endDay = Number(endPlus.slice(8, 10));
   const expected = dtText(JOB.from) + " ~ " + dtText(endPlus);
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
     if (!(await openPanel())) throw new Error("date_panel_not_open");
     await setPanel("left", startMonth);
     if (endMonth !== startMonth) await setPanel("right", endMonth);
+    log("date_headers", JSON.stringify(await header()));
     const startCell = await cellRect(0, startDay);
     if (!startCell) throw new Error("start_cell_not_found:" + startDay);
     await page.mouse.click(startCell.x, startCell.y);
@@ -347,10 +348,16 @@ async function setDateRange() {
     if (!endCell) throw new Error("end_cell_not_found:" + endDay);
     await page.mouse.click(endCell.x, endCell.y);
     await page.waitForTimeout(350);
-    await clickText("归零");
+    if (!(await hasPanel())) {
+      log("date_panel_closed_after_select", "attempt=" + attempt);
+      if (!(await openPanel())) continue;
+    }
+    const zeroOk = await clickText("归零");
+    log("date_zero", zeroOk);
     await page.waitForTimeout(300);
-    await clickText("确认");
-    await page.waitForTimeout(500);
+    const okOk = await clickText("确认");
+    log("date_confirm", okOk);
+    await page.waitForTimeout(600);
     const actual = await page.evaluate(() => {
       const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
       const i = [...document.querySelectorAll("input")].filter(vis).find((e) => /请选择日期/.test(e.placeholder || "") || (e.value || "").includes("~"));
@@ -358,8 +365,20 @@ async function setDateRange() {
     });
     log("date_actual", actual);
     if (actual === expected) return { expected, actual };
+    // 面板还可能开着：再点一次确认
+    if (await hasPanel()) {
+      await clickText("确认");
+      await page.waitForTimeout(600);
+      const again = await page.evaluate(() => {
+        const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+        const i = [...document.querySelectorAll("input")].filter(vis).find((e) => /请选择日期/.test(e.placeholder || "") || (e.value || "").includes("~"));
+        return i ? i.value : "";
+      });
+      log("date_actual2", again);
+      if (again === expected) return { expected, actual: again };
+    }
     log("date_retry", "attempt=" + attempt + " actual=" + actual);
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(1200);
   }
   throw new Error("date_not_applied:" + expected);
 }
