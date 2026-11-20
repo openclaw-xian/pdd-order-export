@@ -33,7 +33,9 @@ node run.mjs order-config.json
 | 下载文件 EBUSY | 浏览器仍在写/持句柄 | worker 先 `task.finish` 关页释放句柄，再等大小稳定 copy；失败重试 |
 | 归档目标 EBUSY | 目标 CSV 被 Excel/WPS 打开 | 关闭占用它的程序后重跑；或先归档成新文件名 |
 | 多店同时导出拿错文件 | Downloads 共享 | 串行执行，每店单独跑 |
-| 页面预算 8/8 | 开太多标签 | worker 结束 `finish` 释放；关闭多余页 |
+| 在待发货页签上跑 | 默认页签可能不是全部订单 | worker 强制校验 `tab=0` 并点「全部订单」 |
+| 状态筛选不是全部 | 用户/上次操作改了筛选 | worker 校验 2 个「全部」+「不限」，否则 `status_filter_not_all` |
+| 页面加载失败仍退出 0 | — | 失败退出码 5；needs 4；预检 3 |
 | CSV 乱码 | 用 GB18030 读 | 实际 UTF-8 BOM；按 utf-8-sig 读 |
 
 ## 4. 边界

@@ -39,6 +39,16 @@ const todayIso = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 1
 if (!/^20\d\d-\d\d-\d\d$/.test(from) || !/^20\d\d-\d\d-\d\d$/.test(to)) addIssue("range_invalid", "from/to 必须是 YYYY-MM-DD", { from, to });
 else if (from > to) addIssue("range_reversed", "起始日晚于结束日", { from, to });
 else if (to > todayIso) addIssue("range_in_future", "结束日在未来（今天 " + todayIso + "）", { to, today: todayIso });
+else {
+  const spanDays = Math.round((new Date(to + "T00:00:00Z") - new Date(from + "T00:00:00Z")) / 86400000);
+  const earliest = (() => {
+    const d = new Date(todayIso + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - 100);
+    return d.toISOString().slice(0, 10);
+  })();
+  if (spanDays > 92) addIssue("range_too_long", "当前 skill 只支持近 3 个月（≤92 天），当前 " + spanDays + " 天", { from, to, spanDays });
+  else if (from < earliest) addIssue("range_older_than_3_months", "当前 skill 只支持「全部订单(近3个月)」；更早日期（" + from + "）请走 3个月前订单（未实现）", { from, earliest });
+}
 
 const rootOnC = /^[A-Za-z]:/.test(ROOT) && ROOT.slice(0, 1).toUpperCase() === "C" && !CFG.allowC;
 if (!existsSync(ROOT)) {

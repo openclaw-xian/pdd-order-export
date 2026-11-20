@@ -37,14 +37,23 @@
 - `D:\对账账单\枝枝家居\2026-10\枝枝家居-订单-10月.csv`
 - `D:\对账账单\枝枝家居\2026-10\订单信息.md`
 
-## 4. skill 全链路（0.1.0）
+## 4. skill 全链路（0.1.0/0.1.1）
 
 - 临时 root `D:/_order-test`（自动创建），店铺C、2026-10：
-  - `status=done`，**orders=1488**，CSV rows=1488，20.7s
+  - `status=done`，**orders=1488**，CSV rows=1488，20.5s
+  - 日志：`status_filters {"all":2,"timeout":true}`；`date_actual 2026-10-01 00:00:00 ~ 2026-11-01 00:00:00`
   - `用户实付 52,609.72` / `商家实收 53,326.66`
   - CSV SHA-256 `7d6e5aa07f543fbf09979e453f8d5fd42d832c5c6fdfacc86cff2ece724be909`
   - 产出 `枝枝家居-订单-10月.csv` + `订单信息.md`
 - 与手工导出文件哈希一致，说明下载/归档链路没有改坏数据。
+
+## 5. 校验/边界测试
+
+| 用例 | 结果 |
+|---|---|
+| 3 个月前日期（2026-07） | `PREFLIGHT=needs_user_input`，`range_older_than_3_months`，exit 3 |
+| 全部订单 tab/状态筛选 | worker 启动时回读：`all=2`、`timeout=true`；不满足直接失败 |
+| 下载文件被占用 | worker 先 `finish` 关页释放句柄，再等大小稳定复制；失败重试 |
 
 ## 5. 已知限制
 

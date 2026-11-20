@@ -19,6 +19,8 @@ worker-order.mjs   ego 进程内：找店 → 日期 → 查询 → 批量导出
 ## worker（worker-order.mjs）
 
 1. **找店**：按 `profileName` 匹配空间 → 打开订单页 → `.user-name-text` 读店铺名；不符 → 扫描 profiles → 更新 `_stores.json` → 重开；仍不行 → `shop_not_logged_in`
+   - 强制确认「全部订单」页签：URL 含 `tab=0`，否则点页签；再校验
+   - 强制确认状态筛选：订单状态/售后状态=全部、超时状态=不限；否则 `status_filter_not_all`
 2. **日期**：
    - 计算 `endPlus = to + 1 天`（因为结束 00:00 不含当天）
    - 打开 RPR 面板（`page.mouse` 循环点 + 检测 wrapper）

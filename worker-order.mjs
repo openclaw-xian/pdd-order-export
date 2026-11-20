@@ -108,6 +108,36 @@ async function updateRegistry(found) {
   await fs.writeFile(regPath, JSON.stringify(reg, null, 2), "utf8");
 }
 
+async function ensureOrderListView() {
+  // 必须停在「全部订单(近3个月)」页签
+  const tabText = await page.evaluate(() => {
+    const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const txt = (e) => (e ? (e.innerText || "").replace(/\s+/g, " ").trim() : "");
+    const t = [...document.querySelectorAll("div,span,a,li")].filter((e) => vis(e) && txt(e).startsWith("全部订单"))[0];
+    if (!t) return null;
+    const b = t.getBoundingClientRect();
+    return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2), text: txt(t) };
+  });
+  const curUrl = await page.evaluate(() => location.href).catch(() => "");
+  if (!curUrl.includes("tab=0") && tabText) {
+    await page.mouse.click(tabText.x, tabText.y);
+    await page.waitForTimeout(800);
+    log("tab_clicked", tabText.text);
+  }
+  const afterUrl = await page.evaluate(() => location.href).catch(() => "");
+  if (!afterUrl.includes("tab=0")) throw new Error("not_all_orders_tab:" + afterUrl);
+
+  // 状态筛选必须是 订单状态=全部、售后状态=全部、超时状态=不限
+  const filters = await page.evaluate(() => {
+    const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const vals = [...document.querySelectorAll("input")].filter(vis).map((e) => e.value || "");
+    return { all: vals.filter((v) => v === "全部").length, timeout: vals.includes("不限") };
+  });
+  log("status_filters", JSON.stringify(filters));
+  if (filters.all < 2 || !filters.timeout) throw new Error("status_filter_not_all:" + JSON.stringify(filters));
+  return true;
+}
+
 async function openShopSpace() {
   let shopName = "";
   if (JOB.profile) {
@@ -471,6 +501,7 @@ async function writeOrderInfo(dest, count) {
 async function main() {
   const shopName = await openShopSpace();
   if (!page) page = await task.newPage();
+  await ensureOrderListView();
   const dateInfo = await setDateRange();
   const count = await queryCount();
   log("query_count", count);
