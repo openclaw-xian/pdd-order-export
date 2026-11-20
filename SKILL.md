@@ -52,6 +52,8 @@ node <skill目录>/run.mjs <config.json>
 - `cooldownSec`（默认 300）：导出冷却秒数
 - `refreshStores`：忽略 `_stores.json`，重新扫 profiles 发现店铺
 - `concurrency`（默认 1）：并行店铺数（1–6）；下载步骤仍串行
+- `reuseExisting`（默认 false）：生成前先找同日期范围已生成报表直接下载；**注意历史报表可能过期**，默认关闭
+- `retries`（默认 1）：对 `export_page_not_found`/`page label`/下载失败等瞬时错误自动重试一次
 - worker 会强制确认：全部订单页签（`tab=0`）+ 订单状态/售后状态=全部 + 超时状态=不限；不满足直接失败
 - 当前只支持「全部订单(近3个月)」范围：区间 ≤92 天且起始日不早于今天−92 天；更早日期未实现
 

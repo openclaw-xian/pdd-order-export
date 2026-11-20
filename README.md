@@ -51,7 +51,7 @@ node run.mjs order-config.json
 
 示例：`examples/order-config.example.json`、`examples/doctor-config.example.json`。
 
-可选：`waitCooldown`（默认 true）、`cooldownSec`（默认 300）、`refreshStores`、`keepOpen`、`concurrency`（默认 1，1–6）。
+可选：`waitCooldown`（默认 true）、`cooldownSec`（默认 300）、`refreshStores`、`keepOpen`、`concurrency`（默认 1，1–6）、`reuseExisting`（默认 false）、`retries`（默认 1）。
 
 ## 输出
 

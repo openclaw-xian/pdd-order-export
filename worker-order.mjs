@@ -468,7 +468,56 @@ async function releaseDownloadLock(fh) {
   try { await fs.unlink(LOCK_FILE); } catch (e) {}
 }
 
+async function tryReuseExistingReport() {
+  if (!JOB.reuseExisting) return null;
+  let pg = null;
+  try {
+    pg = await newPageSafe();
+    await pg.goto("https://mms.pinduoduo.com/orders/exportExcel?exportType=0", { timeout: 60000 });
+    await pg.waitForTimeout(1500);
+    const btn = await findReportDownload(pg);
+    if (!btn) { try { await pg.close(); } catch (e) {} return null; }
+    log("reuse_existing_report", JOB.from + "~" + JOB.to);
+    const lock = await acquireDownloadLock();
+    try {
+      await fs.mkdir(PERIOD_DIR, { recursive: true }).catch(() => {});
+      const dest = path.join(PERIOD_DIR, JOB.csvName);
+      let usedDest = dest, usedName = JOB.csvName, targetLocked = false;
+      const downloadP = pg.waitForEvent("download", { timeout: 25000 }).catch(() => null);
+      await pg.mouse.click(btn.x, btn.y);
+      const dl = await downloadP;
+      if (!dl) throw new Error("reuse_download_no_event");
+      let srcName = "";
+      try { srcName = dl.suggestedFilename(); } catch (e) {}
+      try {
+        await dl.saveAs(dest);
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+        if (/EBUSY|EPERM|EACCES/.test(msg)) {
+          const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(4, 14);
+          const altName = JOB.csvName.replace(/\.csv$/i, ".new-" + stamp + ".csv");
+          const altDest = path.join(PERIOD_DIR, altName);
+          await dl.saveAs(altDest);
+          usedDest = altDest;
+          usedName = altName;
+          targetLocked = true;
+        } else throw new Error("reuse_download_save_failed:" + msg.slice(0, 120));
+      }
+      try { await pg.close(); } catch (e) {}
+      return { srcName: srcName || "download-event", dest: usedDest, csvName: usedName, targetLocked, reused: true };
+    } finally {
+      await releaseDownloadLock(lock);
+    }
+  } catch (e) {
+    log("reuse_existing_failed", String((e && e.message) || e));
+    try { if (pg) await pg.close(); } catch (e2) {}
+    return null;
+  }
+}
+
 async function exportOrders() {
+  const reused = await tryReuseExistingReport();
+  if (reused) return reused;
   await clickText("批量导出");
   await page.waitForTimeout(1800);
   const modalOk = await page.evaluate(() => (document.body.innerText || "").includes("批量导出订单"));

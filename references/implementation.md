@@ -18,6 +18,7 @@ worker-order.mjs   ego 进程内：找店 → 日期 → 查询 → 批量导出
    - 下载步骤用全局锁 `_state/order-download.lock` 串行，避免共享 Downloads 抢文件
    - 需要每店空间标签页 ≤6（ego 上限 8）；用户/历史标签页需先清理
 5. 汇总 `report.json` / `summary.txt`；`needs` → 退出码 4；`failed` → 退出码 5
+   - `retries`（默认 1）：对 `export_page_not_found`/`page label`/下载类瞬时错误再跑一次
 
 ## worker（worker-order.mjs）
 
@@ -34,6 +35,7 @@ worker-order.mjs   ego 进程内：找店 → 日期 → 查询 → 批量导出
 3. **查询**：点「查询」→ 读 `共查询到 N 个订单`
 4. **导出**：
    - 点「批量导出」→ 等弹窗
+   - 若 `reuseExisting:true`：生成前先打开导出页，找同日期范围报表直接下载（默认关闭，避免旧报表）
    - 生成前按 `_state/cooldowns/<店铺>.json` 等冷却（`waitCooldown`/`cooldownSec`）
    - 生成页没开出来 → 当前页打开 `/orders/exportExcel`，**只选日期范围匹配的报表下载**（复用已有任务）
    - 点「生成报表」→ 等新标签页 `/orders/exportExcel?exportType=0`（popup 或 task.tabs 兜底）；若弹窗提示 5 分钟间隔 → `rate_limited`

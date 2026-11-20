@@ -34,6 +34,8 @@ node run.mjs order-config.json
 | 5 分钟内重跑导出 | 平台按账号限频 | worker 读 `_state/cooldowns/<店铺>.json` 先等；生成页开不出则复用同日期范围已生成报表 |
 | 复用报表拿错区间 | 导出页可能有多份报表 | 只找「拼单成功时间 = 目标区间」的下载按钮；下载后再按 CSV 日期校验 |
 | 查询单量和 CSV 不一致 | 导出漏行/复用错报表 | `count_mismatch` 直接失败，不静默归档 |
+| 复用旧报表 | 订单状态/退款会变，旧报表可能过期 | `reuseExisting` 默认 false；开启时仍用查询单量+CSV 日期校验，但数据新鲜度需自己判断 |
+| 瞬时错误 | 页面/下载偶发 | `retries` 默认 1，对页/下载类错误重跑一次；captcha/登录问题不重试 |
 | 目标文件被 Excel 占用 | Windows 文件锁 | 自动写 `.new-<时间>.csv`，md 记录实际文件名 |
 | 跑完页面被关 | worker 默认结束任务释放页面 | 失败/captcha 默认保留页（`PAGE_LEFT_OPEN`）；成功想保留加 `keepOpen:true` |
 | 跑完空间被关 | `finish()` 会结束 task space | 下次 worker 用 `profiles()` + profileId 自动重建 space；不需要手动开 |

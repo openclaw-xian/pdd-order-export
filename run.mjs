@@ -132,6 +132,7 @@ async function runOne(store, i, mode = "run") {
     keepOpen: !!CFG.keepOpen,
     waitCooldown: CFG.waitCooldown !== false,
     cooldownSec: Number(CFG.cooldownSec || 300),
+    reuseExisting: !!CFG.reuseExisting,
     logPath: path.join(LOG_DIR, store.shop + ".log"),
     storesConfig: STORES_CFG,
   };
@@ -203,6 +204,24 @@ async function poolWorker() {
   }
 }
 await Promise.all(Array.from({ length: Math.min(CONCURRENCY, stores.length) }, () => poolWorker()));
+
+const RETRIES = Math.max(0, Number(CFG.retries ?? 1));
+const retryableRe = /export_page_not_found|page label not found|download_file_not_found|download_save_failed|download_copy_failed|reuse_download/;
+for (let attempt = 1; attempt <= RETRIES; attempt++) {
+  const idxs = completed
+    .map((c, i) => ({ c, i }))
+    .filter((x) => x.c && x.c.result && x.c.result.status !== "done" && !x.c.result.needs && retryableRe.test(String(x.c.result.error || "")))
+    .map((x) => x.i);
+  if (!idxs.length) break;
+  console.log("RETRY attempt=" + attempt + " stores=" + idxs.map((i) => stores[i].shop).join(","));
+  for (const i of idxs) {
+    await sleep(1500);
+    const r = await runOne(stores[i], i);
+    completed[i] = r;
+    const s = r.result || {};
+    console.log("RETRY_DONE " + r.shop + " status=" + (s.status || "?") + " orders=" + (s.orders === undefined ? "-" : s.orders) + " wall=" + r.wallSec + "s" + (s.error ? " err=" + s.error : ""));
+  }
+}
 const report = {
   runId: RUN_ID, from, to, periodDir, label,
   createdAt: new Date().toISOString(),
