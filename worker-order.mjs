@@ -336,12 +336,38 @@ async function queryCount() {
   });
 }
 
+async function dismissPrompt() {
+  const hit = await page.evaluate(() => {
+    const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const txt = (e) => (e ? (e.innerText || "").trim() : "");
+    const texts = ["我知道了", "知道了", "确定", "关闭提示", "关闭"];
+    const cands = [...document.querySelectorAll("button,span,div")].filter((e) => vis(e) && texts.includes(txt(e)));
+    if (!cands.length) return null;
+    const t = cands[0];
+    const b = t.getBoundingClientRect();
+    return { text: txt(t), x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
+  }).catch(() => null);
+  if (!hit) return false;
+  log("dismiss_prompt", hit.text);
+  await page.mouse.click(hit.x, hit.y);
+  await page.waitForTimeout(600);
+  return true;
+}
+
+async function detectCaptcha() {
+  return page.evaluate(() => {
+    const t = (document.body.innerText || "").replace(/\s+/g, " ");
+    return /请向右滑块完成拼图|滑块完成拼图|拖动滑块|滑块验证/.test(t);
+  }).catch(() => false);
+}
+
 async function exportOrders() {
   await clickText("批量导出");
   await page.waitForTimeout(1800);
   const modalOk = await page.evaluate(() => (document.body.innerText || "").includes("批量导出订单"));
   log("export_modal", modalOk);
   if (!modalOk) throw new Error("export_modal_not_open");
+  await dismissPrompt();
 
   // 生成报表：标记按钮，用 page.click（鼠标点击弹窗按钮不稳定）
   let genState = await page.evaluate(() => {
@@ -370,6 +396,9 @@ async function exportOrders() {
   const popP = page.waitForEvent("popup", { timeout: 10000 }).catch(() => null);
   if (genState.marked) await page.click('css=[data-ego-genreport="1"]', { label: "generate report" }).catch(() => {});
   else await clickText("生成报表");
+  await page.waitForTimeout(1500);
+  if (await detectCaptcha()) throw new Error("captcha_required:拼多多弹出滑块验证");
+  await dismissPrompt();
   const pop = await popP;
   await page.waitForTimeout(1200);
   let expPage = pop && pop.label ? pop : null;
@@ -382,7 +411,9 @@ async function exportOrders() {
   if (!expPage && genState.marked) {
     // page.click 偶发不触发：再用鼠标点一次按钮
     await page.mouse.click(genState.x, genState.y);
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(2500);
+    if (await detectCaptcha()) throw new Error("captcha_required:拼多多弹出滑块验证");
+    await dismissPrompt();
     const tabs2 = await task.tabs();
     const hit2 = tabs2.find((t) => String(t.url || "").includes("/orders/exportExcel"));
     if (hit2 && hit2.label) expPage = task.page(hit2.label);
@@ -586,6 +617,11 @@ try {
     let profiles = [];
     try { profiles = [...new Set((await listTaskSpaces()).map((s) => String(s.profileName || "")).filter(Boolean))]; } catch (e2) {}
     result.needs = { code: "shop_not_logged_in", question: "在 ego 的各个 profile 里没找到店铺「" + JOB.shop + "」，请登录该店后重跑。", availableProfiles: profiles };
+  } else if (msg.includes("captcha_required")) {
+    result.needs = {
+      code: "captcha_required",
+      question: "拼多多弹出了「请向右滑块完成拼图」验证。请在 ego 里手动完成滑块（或关闭后重试），完成/通过后再重跑；不要连续点导出。",
+    };
   }
   await writeResult({ ok: false, ...result });
 } finally {

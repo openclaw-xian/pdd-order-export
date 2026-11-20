@@ -91,6 +91,7 @@ node <skill目录>/run.mjs doctor.json
 ## 条件不满足时
 
 - 店铺未登录/找不到 → `NEEDS=needs_user_action`（退出码 4），带 question + availableProfiles；让用户登录后重跑
+- **滑块验证**：页面弹出「请向右滑块完成拼图」→ `captcha_required`（`NEEDS`，退出码 4）；必须人工完成滑块后再重跑，不要连续点导出
 - 日期/根目录/ego/清单问题 → `PREFLIGHT=needs_user_input`（退出码 3）
 - 失败 → `FAILED=job_failed`（退出码 5）
 
@@ -114,6 +115,7 @@ node <skill目录>/run.mjs doctor.json
 | `not_all_orders_tab` | 没停在全部订单页签；worker 会点击并校验，仍失败就手动切 |
 | `range_too_long` / `range_older_than_3_months` | 超出当前 skill 的 3 个月范围；缩短区间 |
 | `rate_limited` | 两次导出间隔不足 5 分钟；等 5 分钟后再跑 |
+| `captcha_required` | 弹出滑块验证；人工完成「请向右滑块完成拼图」后再重跑，不要连续点导出 |
 | 目标 CSV 被 Excel/WPS 打开 | worker 自动改写为 `.new-<时间>.csv` 并继续，`订单信息.md` 会记录实际文件名 |
 | 页面预算(8/8) | 关闭多余标签页后重跑；worker 结束会 `finish` 释放 |
 

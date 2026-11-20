@@ -32,6 +32,8 @@ node run.mjs order-config.json
 | 生成报表没反应 | 按钮在弹窗里，可能还没启用；或 5 分钟导出限制 | 等按钮可用；检查导出间隔 |
 | 下载文件 EBUSY | 浏览器仍在写/持句柄 | worker 先 `task.finish` 关页释放句柄，再等大小稳定 copy；失败重试 |
 | 归档目标 EBUSY | 目标 CSV 被 Excel/WPS 打开 | worker 自动改写为 `.new-<时间>.csv`，`订单信息.md` 记录实际文件名 |
+| 生成报表后弹出「请向右滑块完成拼图」 | 平台风控，频繁导出/连续点击触发 | **不能自动绕过**；worker 识别 `captcha_required` 交回用户，手动滑块后重跑 |
+| 点击生成报表无新页且无 toast | 可能是滑块弹窗挡住 | 先查是否滑块验证；不是再重试点击 |
 | 多店连续导出 | 平台按账号限制导出频率 | 串行跑、不同账号互不影响；同一账号 5 分钟内只导一次；被拦后冷却重试 |
 | 生成报表点击后无新页 | 可能被频率限制，也可能点击未触发 | worker 先 page.click，再用鼠标补点；只把 toast 里的“间隔/5分钟”判 `rate_limited`，不再误判弹窗静态说明 |
 | 首次无 `_stores.json` | 需要店铺名单 | runner 自动扫 ego profiles 生成（`STORES_DISCOVERED`） |
