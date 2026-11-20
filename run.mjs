@@ -21,7 +21,7 @@ function findEgo() {
   return "ego-browser";
 }
 
-const ROOT = String(CFG.root || process.env.PDD_BILLS_ROOT || "D:/对账账单").replace(/\\/g, "/").replace(/\/$/, "");
+const ROOT = String(CFG.root || process.env.PDD_BILLS_ROOT || "D:/pdd-bills").replace(/\\/g, "/").replace(/\/$/, "");
 const EGO = String(CFG.ego || process.env.PDD_EGO_BROWSER || findEgo()).replace(/\\/g, "/");
 const WORKER = String(CFG.worker || SELF_WORKER).replace(/\\/g, "/");
 const STORES_CFG = String(CFG.storesConfig || path.join(ROOT, "_stores.json")).replace(/\\/g, "/");

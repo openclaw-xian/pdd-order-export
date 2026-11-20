@@ -46,7 +46,7 @@ node run.mjs order-config.json
 | 点击生成报表无新页且无 toast | 可能是滑块弹窗挡住 | 先查是否滑块验证；不是再重试点击 |
 | 多店连续导出 | 平台按账号限制导出频率 | 串行跑、不同账号互不影响；同一账号 5 分钟内只导一次；被拦后冷却重试 |
 | 生成报表点击后无新页 | 可能被频率限制，也可能点击未触发 | worker 先 page.click，再用鼠标补点；只把 toast 里的“间隔/5分钟”判 `rate_limited`，不再误判弹窗静态说明 |
-| 首次无 `_stores.json` | 需要店铺名单 | runner 自动扫 ego profiles 生成（`STORES_DISCOVERED`） |
+| 首次无 `_stores.json` | 需要店铺名单 | 优先 config `shops`；自动发现只扫**已有空间**，空间被关后可能扫不到 |
 | 多店同时导出拿错文件 | Downloads 共享 | `concurrency` 并行准备/生成，下载/复制用 `order-download.lock` 串行 |
 | 页面预算 8/8 | 历史/用户标签页太多 | 先清理每店空间（留 ≤6 页）；worker 只清自己管理的页，不动用户页 |
 | 批量 adopt 未管理标签页 | ego 的 `as` 标签不能重复 | 清理脚本给每个 tab 唯一 `as`（cleanup1/2/…） |

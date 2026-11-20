@@ -17,8 +17,8 @@ description: 拼多多多店铺「订单查询 + 批量导出」（对账报表�
 
 - Windows + ego-browser（各店 profile 已登录）
 - Node.js
-- 账单根目录：默认 `D:/对账账单`（`root` 可改；非 C 盘不存在会自动创建；C 盘需 `allowC:true`）
-- 店铺清单：`<root>/_stores.json` 或 config `shops`（`profile` 可省略，worker 会自己扫）
+- 账单根目录：默认 `D:/pdd-bills`（`root` 可改；非 C 盘不存在会自动创建；C 盘需 `allowC:true`）
+- 店铺清单：`<root>/_stores.json` 或 config `shops`（首次建议显式提供；自动发现依赖 ego 已有店铺空间）
 
 ## 用法
 
@@ -32,7 +32,7 @@ node <skill目录>/run.mjs <config.json>
 {
   "from": "2026-10-01",
   "to": "2026-10-31",
-  "root": "D:/对账账单",
+  "root": "D:/pdd-bills",
   "shops": [
     { "shop": "<店铺A>", "profile": "<profile-A>" }
   ]
@@ -40,7 +40,7 @@ node <skill目录>/run.mjs <config.json>
 ```
 
 - `shops` 也可只写店铺名；或从 `<root>/_stores.json` 读取
-- **两者都没有时**：自动扫描 ego profiles 生成 `_stores.json`（`STORES_DISCOVERED`）
+- **两者都没有时**：尝试自动扫描 ego 已有店铺空间生成 `_stores.json`（`STORES_DISCOVERED`）；若空间已被关掉，建议显式给 `shops`
 - 下载优先用 ego 的 download 事件 `saveAs`，不再依赖共享 Downloads 轮询；事件不可用时才回退轮询+文件锁
 - 首次/空间被关后用 `profiles()` 按 profile 重建 task space，再跑订单页
 - 默认**串行**执行；可配 `concurrency`（1–6）并行跑多店，**下载/复制**用全局文件锁串行（兜底路径；download 事件本身按页隔离）
@@ -56,6 +56,29 @@ node <skill目录>/run.mjs <config.json>
 - `retries`（默认 1）：对 `export_page_not_found`/`page label`/下载失败等瞬时错误自动重试一次
 - worker 会强制确认：全部订单页签（`tab=0`）+ 订单状态/售后状态=全部 + 超时状态=不限；不满足直接失败
 - 当前只支持「全部订单(近3个月)」范围：区间 ≤92 天且起始日不早于今天−92 天；更早日期未实现
+
+## 配置字段
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `from` / `to` | 必填 | `YYYY-MM-DD`，`to` 含当天；结束筛选自动 +1 天 |
+| `root` | `D:/pdd-bills` | 账单根目录；非 C 盘不存在会创建 |
+| `shops` | — | `[{shop, profile}]`；也可只写 shop |
+| `storesConfig` | `<root>/_stores.json` | 店铺清单路径 |
+| `only` | — | 只跑指定店铺名 |
+| `concurrency` | 1 | 并行店铺数 1–6 |
+| `waitCooldown` | true | 5 分钟内先等待 |
+| `cooldownSec` | 300 | 每店冷却秒数 |
+| `reuseExisting` | false | 生成前复用同区间报表（可能过期） |
+| `retries` | 1 | 页/下载瞬时错误重试次数 |
+| `refreshStores` | false | 强制重扫 profiles |
+| `keepOpen` | false | 成功也保留页面 |
+| `doctor` | false | 只读自检 |
+| `ego` | 自动探测 | ego-browser 路径 |
+| `worker` | 同目录 | worker 脚本路径 |
+| `runtimeDir` | 系统临时目录 | job 包装文件目录 |
+| `jobTimeoutSec` | 300 | 单店超时 |
+| `allowC` | false | 允许根目录在 C 盘 |
 
 ## 自检 doctor（只读，不导出）
 

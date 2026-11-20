@@ -13,7 +13,7 @@ const log = (...a) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const ROOT = (JOB.root || "D:/对账账单").replace(/\\/g, "/").replace(/\/$/, "");
+const ROOT = (JOB.root || "D:/pdd-bills").replace(/\\/g, "/").replace(/\/$/, "");
 const PERIOD_DIR = ROOT + "/" + JOB.shop + "/" + JOB.periodDir;
 const RESULT_PATH = JOB.resultPath;
 const DOWNLOADS = path.join(os.homedir(), "Downloads");

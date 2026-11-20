@@ -1,12 +1,12 @@
 # DOM 契约（订单查询 / 批量导出）
 
-> 环境：Windows + ego lite 0.6.3.14，2026-11-20 在枝枝家居实测。
+> 环境：Windows + ego lite 0.6.3.14，2026-11-20 在店铺C实测。
 
 ## 1. 页面入口
 
 - URL：`https://mms.pinduoduo.com/orders/list?tab=0`（`tab=0` = 全部订单(近3个月)）
 - 标题：`订单查询`
-- 店铺名：`.user-name-text` / `.user-name-name`（右上角，如 `枝枝家居`）
+- 店铺名：`.user-name-text` / `.user-name-name`（右上角，如 `店铺C`）
 - 页签：全部订单(近3个月) / 待付款 / 待发货 / 待收货 / 退款售后 / 3个月前订单
 
 ## 2. 筛选区
